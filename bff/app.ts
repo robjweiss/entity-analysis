@@ -1,26 +1,12 @@
 import express from 'express'
+import { sendNotFound } from './httpErrors.ts'
+import projectRoutes from './routes/projects.ts'
 
-export type SayariGateway = {
-  getCountries: () => Promise<{ data: unknown[]; totalCount: number }>
-}
-
-export function createApp(sayari: SayariGateway) {
+export function createApp() {
   const app = express()
 
-  // Temporary debug/example endpoint. Replace with feature-specific read routes
-  // as the Sayari-backed product functionality is implemented.
-  app.get('/api/sayari/debug/countries', async (_request, response) => {
-    try {
-      const countries = await sayari.getCountries()
-
-      response.json({
-        returned: countries.data.length,
-        totalCount: countries.totalCount,
-      })
-    } catch {
-      response.status(502).json({ error: 'The Sayari request failed.' })
-    }
-  })
+  app.use('/api/projects', projectRoutes)
+  app.use('/api', (_request, response) => sendNotFound(response))
 
   return app
 }

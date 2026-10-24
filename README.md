@@ -35,11 +35,7 @@ const client = new SayariClient({
 
 Vite proxies `/api` requests to the BFF on `127.0.0.1:8787`.
 
-The `/sayari-debug` page and `/api/sayari/debug/countries` endpoint are
-temporary examples for validating connectivity. Replace them with
-feature-specific pages and read-only endpoints as Sayari-backed functionality
-is implemented.
-
+The BFF exposes read-only, feature-specific endpoints for Sayari project data.
 
 ## Recommended IDE Setup
 

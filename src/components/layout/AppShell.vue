@@ -33,7 +33,6 @@ const destinations = [
   { path: '/executive', role: 'Executive', title: 'Exposure Snapshot', icon: Landmark },
   { path: '/management', role: 'Management', title: 'Priority Queue', icon: ListTodo },
   { path: '/analyst', role: 'Analyst', title: 'Entity Investigation', icon: SearchCheck },
-  { path: '/sayari-debug', role: 'Developer', title: 'Sayari API Test', icon: ShieldCheck },
 ]
 
 const currentDestination = computed(() =>
