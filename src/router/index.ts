@@ -33,6 +33,13 @@ const router = createRouter({
           component: AnalystView,
           meta: { title: 'Entity Investigation', role: 'Analyst' },
         },
+        {
+          path: 'sayari-debug',
+          name: 'sayari-debug',
+          // Temporary example/debug page; replace it with implemented features.
+          component: () => import('@/views/SayariDebugView.vue'),
+          meta: { title: 'Sayari API Test', role: 'Developer' },
+        },
       ],
     },
   ],

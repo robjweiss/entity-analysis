@@ -1,6 +1,45 @@
-# entity-analysis
+# Entity Analysis
 
-This template should help get you started developing with Vue 3 in Vite.
+Entity Analysis is a Vue 3 application for viewing entity risk information.
+It will use the [Sayari Node SDK](https://github.com/sayari-analytics/sayari-node)
+as a read-only data source.
+
+## Sayari credentials
+
+The Sayari Node SDK requires a client ID and client secret issued by Sayari.
+The local BFF in `bff/` works with the SDK and credentials.
+
+1. Copy the committed template to a local environment file:
+
+   ```sh
+   cp .env.example .env
+   ```
+
+2. Add the values supplied by Sayari:
+
+   ```dotenv
+   SAYARI_CLIENT_ID=your-client-id
+   SAYARI_CLIENT_SECRET=your-client-secret
+   ```
+
+The SDK client is initialized only in `bff/sayari.ts`:
+
+```ts
+import { SayariClient } from '@sayari/sdk'
+
+const client = new SayariClient({
+  clientId: process.env.SAYARI_CLIENT_ID,
+  clientSecret: process.env.SAYARI_CLIENT_SECRET,
+})
+```
+
+Vite proxies `/api` requests to the BFF on `127.0.0.1:8787`.
+
+The `/sayari-debug` page and `/api/sayari/debug/countries` endpoint are
+temporary examples for validating connectivity. Replace them with
+feature-specific pages and read-only endpoints as Sayari-backed functionality
+is implemented.
+
 
 ## Recommended IDE Setup
 

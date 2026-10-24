@@ -5,6 +5,12 @@ test('redirects the root route to the executive workspace', async ({ page }) => 
   await expect(page).toHaveURL(/\/executive$/)
 })
 
+test('opens the Sayari API test page without making a request', async ({ page }) => {
+  await page.goto('/sayari-debug')
+  await expect(page.getByRole('heading', { name: 'Sayari API Test' })).toBeVisible()
+  await expect(page.getByTestId('sayari-test-button')).toBeVisible()
+})
+
 const workspaces = [
   { role: 'executive', path: '/executive' },
   { role: 'management', path: '/management' },
