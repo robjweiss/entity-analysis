@@ -21,12 +21,16 @@ git commit -m "Refactor the BankListItem component to make it pure"
 git commit -m "refactor(bank): make the BankListItem component pure"
 ```
 
-### Always run the following commands before pausing for review:
+### Always run the following commands after the user has given approval to commit, but before committing:
 
 - `pnpm build`
 - `pnpm test:unit run --silent`
 - `pnpm test:e2e`
 - `pnpm lint`
+
+Do not proceed with the commit if there are any failures or errors
+
+Do not run the commands after every change as it is too time consuming.
 
 ## Testing
 
