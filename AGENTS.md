@@ -21,7 +21,8 @@ git commit -m "refactor(bank): make the BankListItem component pure"
 ### Always run the following commands before pausing for review:
 
 - `pnpm build`
-- `pnpm test run --silent`
+- `pnpm test:unit run --silent`
+- `pnpm test:e2e`
 - `pnpm lint`
 
 ## Testing
