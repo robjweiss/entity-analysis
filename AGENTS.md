@@ -1,6 +1,9 @@
 ## Commits
 
-- Commits will be made atomically, pause at natural points so commits of logical units can be made before continuing
+- Before starting work that spans multiple concerns or is likely to need multiple commits, inspect the scope and propose a commit plan. For each commit, state its purpose and the main changes it will contain. Get the user's approval of the plan before implementation. A small, focused task can use a single commit without a separate plan.
+- Keep each commit focused on one independently reviewable concern. Avoid combining setup, application behavior, and unrelated test or documentation changes unless they are inseparable. File count or diff size alone does not determine whether a commit is too large.
+- Reassess the plan as implementation details emerge. If the scope expands or a better split becomes apparent, pause and agree on a revised plan before continuing with the affected work.
+- Work on one planned commit at a time: stage only that slice and present its staged files and diff summary. Do not stage the next slice until the current slice has been committed.
 - All changes will be reviewed by the user before committing
 - Suggest an appropriate commit message for each change
 
