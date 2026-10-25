@@ -10,7 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import type { EntityDetail, EntityPage, ProjectPage } from '../../bff/projects.ts'
+import type { EntityDetail, EntityPage, ProjectPage } from '@shared/api/projects'
 
 type Cursor = { next?: string; prev?: string }
 type Entity = EntityPage['entities'][number]

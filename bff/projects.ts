@@ -1,51 +1,6 @@
 import { SayariEnvironment, SayariError, type SayariClient } from '@sayari/sdk'
 import type { Sayari } from '@sayari/sdk'
-
-export type ProjectPage = {
-  projects: { id: string; label: string }[]
-  next?: string
-  prev?: string
-}
-
-export type EntityPage = {
-  entities: {
-    id: string
-    label: string
-    countries: string[]
-    riskCategories: { id: string; label: string }[]
-    riskFactors: { id: string; label: string }[]
-    riskSeverity?: Sayari.RiskLevel
-  }[]
-  next?: string
-  prev?: string
-}
-
-export type EntityDetail = {
-  riskFactors: {
-    id: string
-    label: string
-    level: Sayari.RiskLevel
-    riskCategories: { id: string; label: string }[]
-    sourceEntityIds: string[]
-    networkPaths: {
-      sayariEntityId: string
-      sayariEntityLabel: string
-      relationshipType: string
-      relationshipStatus?: string
-      former?: boolean
-      firstObserved?: string
-      lastObserved?: string
-      startDate?: string
-      shares?: Sayari.ShareInformation
-    }[][]
-  }[]
-  riskChanges: {
-    id: string
-    timestamp: string
-    changeType: Sayari.RiskChangeFactorChangeType
-  }[]
-  nextRiskChange?: string
-}
+import type { EntityDetail, EntityPage, ProjectPage } from '#shared/api/projects'
 
 export type EntityFilters = {
   name?: string

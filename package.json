@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#shared/*": "./shared/*.ts"
+  },
   "scripts": {
     "dev": "run-p dev:client dev:bff",
     "dev:client": "vite",
