@@ -1,18 +1,27 @@
 import type { SayariClient } from '@sayari/sdk'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getProjectEntities, getProjectEntityDetail, getProjects } from './projects.ts'
+
+const entityResponse = {
+  limit: 25,
+  data: [{
+    project_entity_id: 'entity-1', label: 'Example supplier',
+    attributes: { name: { match_resolution: true, values: [{ value: 'Example supplier' }] } },
+    countries: ['JPN'], risk_categories: [{ id: 'sanctions', label: 'Sanctions' }],
+    risk_factors: [{ id: 'sanctioned' }], upstream: { products: ['8536'] },
+  }],
+  next: 'next-entity', prev: 'prev-entity', size: { count: 1, qualifier: 'eq' },
+}
+
+function mockEntityResponse(body: object = entityResponse, status = 200) {
+  const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status }))
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
 
 function createClient() {
   const getProjects = vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
     data: [{ id: 'project-1', label: 'Supplier review' }], next: 'next-project',
-  })
-  const getProjectEntities = vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
-    data: [{
-      projectEntityId: 'entity-1', label: 'Example supplier', countries: ['JPN'],
-      riskCategories: [{ id: 'sanctions', label: 'Sanctions', riskFactors: ['sanctioned'] }],
-      riskFactors: [{ id: 'sanctioned' }], upstream: { products: ['8536'] },
-    }],
-    nextToken: 'next-entity', size: { count: 1, qualifier: 'eq' },
   })
   const getProjectEntityRiskSummary = vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
     data: { riskFactors: [{
@@ -27,11 +36,15 @@ function createClient() {
   })
   const client = {
     project: { getProjects },
-    projectEntity: { getProjectEntities, getProjectEntityRiskSummary, getProjectEntityRiskChanges },
+    projectEntity: { getProjectEntityRiskSummary, getProjectEntityRiskChanges },
   } as unknown as SayariClient
 
-  return { client, getProjects, getProjectEntities, getProjectEntityRiskSummary, getProjectEntityRiskChanges }
+  return { client, getProjects, getProjectEntityRiskSummary, getProjectEntityRiskChanges }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('priority queue Sayari gateway', () => {
   it('loads unarchived projects with an upstream cursor', async () => {
@@ -49,27 +62,65 @@ describe('priority queue Sayari gateway', () => {
     })
   })
 
-  it('passes partner filters to the SDK', async () => {
-    const { client, getProjectEntities: getProjectEntitiesMock } = createClient()
-    await getProjectEntities(client, 'project-1', {
+  it('sends filters and pagination directly to the Sayari entity endpoint', async () => {
+    const fetchMock = mockEntityResponse()
+    await getProjectEntities('project-1', {
       name: 'supplier', country: 'JPN', riskCategory: 'sanctions', next: 'cursor',
-    })
+    }, 'test-token')
 
-    expect(getProjectEntitiesMock).toHaveBeenCalledWith('project-1', {
-      limit: 25, next: 'cursor', prev: undefined,
-      filter: { label: { fuzzy: ['supplier'] }, country: ['JPN'], riskCategory: ['sanctions'] },
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]))
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      limit: '25', 'filter[label][fuzzy]': 'supplier', 'filter[country]': 'JPN',
+      'filter[risk_category]': 'sanctions', next: 'cursor',
     })
   })
 
-  it('maps entity list fields without implying an overall severity', async () => {
-    const { client } = createClient()
-    const response = await getProjectEntities(client, 'project-1', {})
+  it('maps the live entity shape without parsing unused attributes', async () => {
+    mockEntityResponse()
+    const response = await getProjectEntities('project-1', {}, 'test-token')
 
     expect(response.entities).toEqual([{
       id: 'entity-1', label: 'Example supplier', countries: ['JPN'],
       riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
       riskFactors: ['sanctioned'], upstreamProducts: ['8536'],
     }])
+  })
+
+  it('uses the API next cursor rather than the SDK next_token field', async () => {
+    mockEntityResponse()
+
+    expect((await getProjectEntities('project-1', {}, 'test-token')).next).toBe('next-entity')
+  })
+
+  it('uses the API previous cursor', async () => {
+    mockEntityResponse()
+
+    expect((await getProjectEntities('project-1', {}, 'test-token')).prev).toBe('prev-entity')
+  })
+
+  it('omits the unused upstream total from the BFF response', async () => {
+    mockEntityResponse()
+
+    expect(await getProjectEntities('project-1', {}, 'test-token')).not.toHaveProperty('size')
+  })
+
+  it('passes the SDK bearer token to the API', async () => {
+    const fetchMock = mockEntityResponse()
+    await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization')).toBe('Bearer test-token')
+  })
+
+  it('rejects malformed API entity responses', async () => {
+    mockEntityResponse({ data: 'not a list' })
+
+    await expect(getProjectEntities('project-1', {}, 'test-token')).rejects.toThrow('Unexpected Sayari entity response.')
+  })
+
+  it('preserves the upstream HTTP status for BFF error handling', async () => {
+    mockEntityResponse({}, 429)
+
+    await expect(getProjectEntities('project-1', {}, 'test-token')).rejects.toMatchObject({ statusCode: 429 })
   })
 
   it('loads summary and risk changes for a selected entity', async () => {

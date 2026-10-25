@@ -34,7 +34,6 @@ test.beforeEach(async ({ page }) => {
                   upstreamProducts: ['8536'],
                 },
               ],
-          size: { count: 1, qualifier: 'eq' },
         },
       })
     } else {

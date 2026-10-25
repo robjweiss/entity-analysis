@@ -2,7 +2,7 @@ import { Sayari } from '@sayari/sdk'
 import { Router, type Request, type Response } from 'express'
 import { RequestValidationError, sendRouteError } from '../httpErrors.ts'
 import { getProjectEntities, getProjectEntityDetail, getProjects } from '../projects.ts'
-import { getSayariClient } from '../sayari.ts'
+import { getAccessToken, getSayariClient } from '../sayari.ts'
 
 const countryCodes = new Set<string>(Object.values(Sayari.Country))
 const queryLimits = { cursor: 4096, filter: 500 }
@@ -87,9 +87,11 @@ export async function listProjectEntities(request: Request<{ projectId: string }
     const riskCategory = queryValue('riskCategory', request.query.riskCategory)
     const cursors = paginationCursors(request)
 
-    response.json(await getProjectEntities(getSayariClient(), projectId, {
+    const client = getSayariClient()
+    const token = await getAccessToken(client)
+    response.json(await getProjectEntities(projectId, {
       name, country, riskCategory, ...cursors,
-    }))
+    }, token))
   } catch (error) {
     sendRouteError(response, error, 'Unable to load project entities. Please try again shortly.')
   }

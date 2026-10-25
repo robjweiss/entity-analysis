@@ -1,4 +1,4 @@
-import type { SayariClient } from '@sayari/sdk'
+import { SayariEnvironment, SayariError, type SayariClient } from '@sayari/sdk'
 import type { Sayari } from '@sayari/sdk'
 
 export type ProjectPage = {
@@ -18,7 +18,6 @@ export type EntityPage = {
   }[]
   next?: string
   prev?: string
-  size: Sayari.QualifiedCount
 }
 
 export type EntityDetail = {
@@ -46,6 +45,19 @@ export type EntityFilters = {
   prev?: string
 }
 
+type SayariEntityPage = {
+  data: {
+    project_entity_id: string
+    label: string
+    countries: string[]
+    risk_categories: { id: string; label: string }[]
+    risk_factors: { id: string }[]
+    upstream: { products: string[] }
+  }[]
+  next?: string
+  prev?: string
+}
+
 export async function getProjects(
   client: SayariClient,
   cursors: { next?: string; prev?: string } = {},
@@ -60,33 +72,43 @@ export async function getProjects(
 }
 
 export async function getProjectEntities(
-  client: SayariClient,
   projectId: string,
   filters: EntityFilters,
+  token: string,
 ): Promise<EntityPage> {
-  const response = await client.projectEntity.getProjectEntities(projectId, {
-    limit: 25,
-    next: filters.next,
-    prev: filters.prev,
-    filter: {
-      ...(filters.name && { label: { fuzzy: [filters.name] } }),
-      ...(filters.country && { country: [filters.country] }),
-      ...(filters.riskCategory && { riskCategory: [filters.riskCategory] }),
-    },
+  // @sayari/sdk@0.1.44 rejects the live entity-list response: attributes.*.values
+  // contain { value } objects, not strings, and the cursor is "next", not "next_token".
+  // Request only this endpoint directly until its SDK schema matches the API.
+  const url = new URL(
+    `/v1/projects/${encodeURIComponent(projectId)}/entities`,
+    SayariEnvironment.Production,
+  )
+  url.searchParams.set('limit', '25')
+  if (filters.name) url.searchParams.set('filter[label][fuzzy]', filters.name)
+  if (filters.country) url.searchParams.set('filter[country]', filters.country)
+  if (filters.riskCategory) url.searchParams.set('filter[risk_category]', filters.riskCategory)
+  if (filters.next) url.searchParams.set('next', filters.next)
+  if (filters.prev) url.searchParams.set('prev', filters.prev)
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(60_000),
   })
+  if (!response.ok) throw new SayariError({ statusCode: response.status })
+  const page = (await response.json()) as SayariEntityPage
+  if (!Array.isArray(page?.data)) throw new Error('Unexpected Sayari entity response.')
 
   return {
-    entities: response.data.map((entity) => ({
-      id: entity.projectEntityId,
+    entities: page.data.map((entity) => ({
+      id: entity.project_entity_id,
       label: entity.label,
       countries: entity.countries,
-      riskCategories: entity.riskCategories.map(({ id, label }) => ({ id, label })),
-      riskFactors: entity.riskFactors.map(({ id }) => id),
+      riskCategories: entity.risk_categories.map(({ id, label }) => ({ id, label })),
+      riskFactors: entity.risk_factors.map(({ id }) => id),
       upstreamProducts: entity.upstream.products,
     })),
-    next: response.nextToken,
-    prev: response.prevToken,
-    size: response.size,
+    next: page.next,
+    prev: page.prev,
   }
 }
 

@@ -11,7 +11,7 @@ const entity = {
   riskFactors: ['sanctioned'],
   upstreamProducts: ['8536'],
 }
-const entities = { entities: [entity], size: { count: 1, qualifier: 'eq' } }
+const entities = { entities: [entity] }
 const detail = {
   riskFactors: [
     {
@@ -155,7 +155,7 @@ describe('ManagementView', () => {
   })
 
   it('shows the empty state returned by the BFF', async () => {
-    mockApi({ entities: [], size: { count: 0, qualifier: 'eq' } })
+    mockApi({ entities: [] })
     const wrapper = mount(ManagementView)
     await flushPromises()
 
