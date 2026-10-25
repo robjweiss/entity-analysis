@@ -1,6 +1,7 @@
 import { Sayari } from '@sayari/sdk'
 import { Router, type Request, type Response } from 'express'
 import { RequestValidationError, sendRouteError } from '../httpErrors.ts'
+import { getProjectExposure, getProjectRiskChanges } from '../exposure.ts'
 import { getProjectEntities, getProjectEntityDetail, getProjects } from '../projects.ts'
 import { getAccessToken, getSayariClient } from '../sayari.ts'
 
@@ -113,8 +114,30 @@ export async function getProjectEntityDetails(
   }
 }
 
+export async function projectExposure(request: Request<{ projectId: string }>, response: Response) {
+  try {
+    validateSupportedQuery(request, [])
+    const projectId = pathId('projectId', request.params.projectId)
+    response.json(await getProjectExposure(projectId, await getAccessToken(getSayariClient())))
+  } catch (error) {
+    sendRouteError(response, error, 'Unable to load project exposure. Please try again shortly.')
+  }
+}
+
+export async function projectRiskChanges(request: Request<{ projectId: string }>, response: Response) {
+  try {
+    validateSupportedQuery(request, [])
+    const projectId = pathId('projectId', request.params.projectId)
+    response.json(await getProjectRiskChanges(projectId, await getAccessToken(getSayariClient())))
+  } catch (error) {
+    sendRouteError(response, error, 'Unable to load project risk changes. Please try again shortly.')
+  }
+}
+
 const router = Router()
 router.get('/', listProjects)
+router.get('/:projectId/exposure', projectExposure)
+router.get('/:projectId/risk-changes', projectRiskChanges)
 router.get('/:projectId/entities', listProjectEntities)
 router.get('/:projectId/entities/:entityId', getProjectEntityDetails)
 

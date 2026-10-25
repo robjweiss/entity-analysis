@@ -52,12 +52,7 @@ function stubEntityApi(status = 200) {
         : url.includes('/changes/risk?')
           ? { data: {} }
           : { data: [], size: { count: 0, qualifier: 'eq' } }
-      return Promise.resolve(
-        new Response(
-          status === 429 ? null : JSON.stringify(body),
-          { status },
-        ),
-      )
+      return Promise.resolve(new Response(status === 429 ? null : JSON.stringify(body), { status }))
     }
     return nativeFetch(input, init)
   })
@@ -72,15 +67,33 @@ beforeEach(() => {
   sayari.getProjectEntityRiskChanges.mockResolvedValue({ data: { riskFactors: [] } })
   sayari.getEntity.mockResolvedValue({
     relationships: {
-      data: [{
-        target: { id: 'related-1', label: 'Related entity', countries: ['JPN'], sanctioned: false, pep: false },
-        types: { has_director: [] },
-      }],
+      data: [
+        {
+          target: {
+            id: 'related-1',
+            label: 'Related entity',
+            countries: ['JPN'],
+            sanctioned: false,
+            pep: false,
+          },
+          types: { has_director: [] },
+        },
+      ],
       size: { count: 11, qualifier: 'eq' },
       next: 'next-cursor',
     },
     referencedBy: {
-      data: [{ type: 'about', record: { id: 'record-1', label: 'Company record', source: 'registry', publicationDate: '2026-01-01' } }],
+      data: [
+        {
+          type: 'about',
+          record: {
+            id: 'record-1',
+            label: 'Company record',
+            source: 'registry',
+            publicationDate: '2026-01-01',
+          },
+        },
+      ],
       size: { count: 12, qualifier: 'eq' },
       next: 'next-record-cursor',
     },
@@ -136,6 +149,72 @@ describe('project routes', () => {
         next: 'cursor',
       },
     })
+  })
+
+  it('serves the exposure counts for the selected project', async () => {
+    const requests = stubEntityApi()
+    const response = await requestApp('/api/projects/abc/exposure')
+
+    expect({
+      status: response.status,
+      body: await response.json(),
+      requests: requests.length,
+    }).toEqual({
+      status: 200,
+      body: {
+        total: { count: 0, qualifier: 'eq' },
+        categories: Object.fromEntries(
+          ['sanctions', 'forcedLabor', 'exportControls', 'adverseMedia'].map((key) => [
+            key,
+            { count: 0, qualifier: 'eq' },
+          ]),
+        ),
+      },
+      requests: 5,
+    })
+  })
+
+  it('serves an empty recent-change response', async () => {
+    const response = await requestApp('/api/projects/abc/risk-changes')
+
+    expect(await response.json()).toMatchObject({ changes: [], hasMore: false })
+  })
+
+  it.each(['exposure', 'risk-changes'])(
+    'rejects unsupported %s query parameters',
+    async (route) => {
+      const response = await requestApp(`/api/projects/abc/${route}?next=cursor`)
+
+      expect(response.status).toBe(400)
+    },
+  )
+
+  it.each(['exposure', 'risk-changes'])('rejects invalid %s project identifiers', async (route) => {
+    const response = await requestApp(`/api/projects/%20abc/${route}`)
+
+    expect(response.status).toBe(400)
+  })
+
+  it.each(['exposure', 'risk-changes'])(
+    'maps %s rate limits to retryable errors',
+    async (route) => {
+      stubEntityApi(429)
+      const response = await requestApp(`/api/projects/abc/${route}`)
+
+      expect((await response.json()).error.code).toBe('UPSTREAM_RATE_LIMITED')
+    },
+  )
+
+  it('surfaces malformed exposure counts as errors', async () => {
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).startsWith('https://api.sayari.com/')
+        ? Promise.resolve(new Response(JSON.stringify({ data: [] })))
+        : nativeFetch(input, init),
+    )
+
+    const response = await requestApp('/api/projects/abc/exposure')
+
+    expect(response.status).toBe(502)
   })
 
   it('maps entity-list rate limits to a retryable BFF error', async () => {
@@ -242,10 +321,13 @@ describe('project routes', () => {
   it('loads the next relationship page with the provided Sayari cursor', async () => {
     const response = await requestApp('/api/entities/entity-1/relationships?next=next-cursor')
 
-    expect(sayari.getEntity).toHaveBeenCalledWith('entity-1', expect.objectContaining({
-      relationshipsLimit: 10,
-      relationshipsNext: 'next-cursor',
-    }))
+    expect(sayari.getEntity).toHaveBeenCalledWith(
+      'entity-1',
+      expect.objectContaining({
+        relationshipsLimit: 10,
+        relationshipsNext: 'next-cursor',
+      }),
+    )
     expect(await response.json()).toMatchObject({
       relationships: [{ id: 'related-1', label: 'Related entity', types: ['Has Director'] }],
       relationshipCount: 11,
@@ -256,10 +338,13 @@ describe('project routes', () => {
   it('loads the next supporting-record page with its Sayari cursor', async () => {
     const response = await requestApp('/api/entities/entity-1/records?next=record-cursor')
 
-    expect(sayari.getEntity).toHaveBeenCalledWith('entity-1', expect.objectContaining({
-      referencedByLimit: 10,
-      referencedByNext: 'record-cursor',
-    }))
+    expect(sayari.getEntity).toHaveBeenCalledWith(
+      'entity-1',
+      expect.objectContaining({
+        referencedByLimit: 10,
+        referencedByNext: 'record-cursor',
+      }),
+    )
     expect(await response.json()).toMatchObject({
       records: [{ id: 'record-1', label: 'Company record', type: 'about' }],
       recordCount: 12,
