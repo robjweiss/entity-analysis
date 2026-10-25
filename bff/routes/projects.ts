@@ -105,7 +105,9 @@ export async function getProjectEntityDetails(
     validateSupportedQuery(request, [])
     const projectId = pathId('projectId', request.params.projectId)
     const entityId = pathId('entityId', request.params.entityId)
-    response.json(await getProjectEntityDetail(getSayariClient(), projectId, entityId))
+    const client = getSayariClient()
+    const token = await getAccessToken(client)
+    response.json(await getProjectEntityDetail(projectId, entityId, token))
   } catch (error) {
     sendRouteError(response, error, 'Unable to load entity risk details. Please try again shortly.')
   }

@@ -44,14 +44,15 @@ function stubEntityApi(status = 200) {
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).startsWith('https://api.sayari.com/')) {
       requests.push(String(input))
+      const url = String(input)
+      const body = url.endsWith('/risk_summary')
+        ? { data: { risk_factors: [] } }
+        : url.includes('/changes/risk?')
+          ? { data: {} }
+          : { data: [], size: { count: 0, qualifier: 'eq' } }
       return Promise.resolve(
         new Response(
-          status === 429
-            ? null
-            : JSON.stringify({
-                data: [],
-                size: { count: 0, qualifier: 'eq' },
-              }),
+          status === 429 ? null : JSON.stringify(body),
           { status },
         ),
       )
@@ -211,11 +212,13 @@ describe('project routes', () => {
   })
 
   it('loads entity details from the requested project', async () => {
+    const requests = stubEntityApi()
     const response = await requestApp('/api/projects/abc/entities/entity-1')
 
-    expect(sayari.getProjectEntityRiskSummary).toHaveBeenCalledWith('abc', 'entity-1', {
-      filter: {},
-    })
+    expect(requests).toEqual([
+      'https://api.sayari.com/v1/projects/abc/entities/entity-1/risk_summary',
+      'https://api.sayari.com/v1/projects/abc/entities/entity-1/changes/risk?limit=100',
+    ])
     expect(response.status).toBe(200)
   })
 
