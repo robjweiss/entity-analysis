@@ -28,7 +28,7 @@ test.beforeEach(async ({ page }) => {
                 {
                   id: 'entity-1',
                   label: 'Example supplier',
-                  countries: ['JPN'],
+                  countries: ['JPN', 'USA'],
                   riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
                   riskFactors: ['sanctioned'],
                   riskSeverity: 'critical',
@@ -57,6 +57,19 @@ test('shows the maximum entity risk severity', async ({ page }) => {
   await page.goto('/management')
 
   await expect(page.getByTestId('priority-queue-entity-entity-1')).toContainText('Critical')
+})
+
+test('keeps country codes out of the overview', async ({ page }) => {
+  await page.goto('/management')
+
+  await expect(page.getByTestId('priority-queue-entity-entity-1')).not.toContainText(/JPN|USA/)
+})
+
+test('shows all countries in entity details', async ({ page }) => {
+  await page.goto('/management')
+  await page.getByTestId('priority-queue-entity-entity-1').click()
+
+  await expect(page.getByRole('dialog')).toContainText('JPN, USA')
 })
 
 test('opens entity risk details from the keyboard', async ({ page }) => {

@@ -61,6 +61,28 @@ describe('ManagementView', () => {
     expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).toContain('Critical')
   })
 
+  it('keeps country codes out of the entity list', async () => {
+    mockApi({
+      entities: [{ ...entity, countries: ['JPN', 'USA'] }],
+    })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).not.toMatch(/JPN|USA/)
+  })
+
+  it('keeps all country codes in the entity detail sheet', async () => {
+    mockApi({
+      entities: [{ ...entity, countries: ['JPN', 'USA'] }],
+    })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="priority-queue-entity-entity-1"]').trigger('click')
+
+    expect(document.body.textContent).toContain('JPN, USA')
+  })
+
   it.each([
     { field: 'priority-queue-search', value: ' supplier ', query: 'name=supplier' },
     { field: 'priority-queue-country-filter', value: 'jpn', query: 'country=JPN' },

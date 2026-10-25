@@ -295,7 +295,6 @@ function clearFilters() {
               <td class="px-4 py-3">
                 <span class="grid gap-1">
                   <span class="font-medium">{{ entity.label }}</span>
-                  <span class="text-muted-foreground">{{ entity.countries.join(', ') }}</span>
                 </span>
               </td>
               <td class="px-4 py-3">
