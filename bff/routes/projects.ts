@@ -126,9 +126,11 @@ export async function projectExposure(request: Request<{ projectId: string }>, r
 
 export async function projectRiskChanges(request: Request<{ projectId: string }>, response: Response) {
   try {
-    validateSupportedQuery(request, [])
+    validateSupportedQuery(request, ['next', 'asOf'])
     const projectId = pathId('projectId', request.params.projectId)
-    response.json(await getProjectRiskChanges(projectId, await getAccessToken(getSayariClient())))
+    const next = queryValue('next', request.query.next, queryLimits.cursor)
+    const asOf = queryValue('asOf', request.query.asOf)
+    response.json(await getProjectRiskChanges(projectId, await getAccessToken(getSayariClient()), new Date(), { next, asOf }))
   } catch (error) {
     sendRouteError(response, error, 'Unable to load project risk changes. Please try again shortly.')
   }

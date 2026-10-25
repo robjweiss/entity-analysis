@@ -5,8 +5,10 @@ const count = (value: unknown) => ({ data: [{ project_entity_id: 'one' }], size:
 const exact = (value: number) => ({ count: value, qualifier: 'eq' })
 
 function stubResponses(responses: unknown[], status = 200) {
-  const fetchMock = vi.fn<typeof fetch>(async () => new Response(
-    JSON.stringify(responses.shift()), { status },
+  const fetchMock = vi.fn<typeof fetch>(async (input) => new Response(
+    JSON.stringify(String(input).includes('/ontology/risk_factors') ? { data: [
+      { id: 'exports_bis_high_priority_items_critical_components_indirect', label: 'Indirect Exports of Critical Components in USA Bureau of Industry and Security (BIS) Common High Priority Items List', level: 'high' },
+    ] } : responses.shift()), { status },
   ))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -111,15 +113,15 @@ describe('project risk changes', () => {
     expect((await getProjectRiskChanges('project-1', 'token', now)).changes.map((change) => change.factor)).toEqual(['recent'])
   })
 
-  it('does not suggest more in-window changes when only pre-window changes were returned', async () => {
+  it('preserves Sayari pagination even when a page has no in-window factors', async () => {
     stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
       { id: 'old', timestamp: '2026-10-18T11:59:59Z', change_type: 'added' },
-    ] }] }, next: 'cursor' }])
+    ] }] }, next: 'sayari-next-token' }])
 
-    expect((await getProjectRiskChanges('project-1', 'token', now)).hasMore).toBe(false)
+    expect((await getProjectRiskChanges('project-1', 'token', now)).next).toBe('sayari-next-token')
   })
 
-  it('flattens factor additions and removals, sorting and limiting displayed items', async () => {
+  it('flattens and sorts all factor additions and removals from a bounded Sayari page', async () => {
     stubResponses([{ data: { project_id: 'project-1', risk_changes: [
       { project_entity_id: 'one', label: 'Example supplier', risk_factors: [
         { id: 'sanctioned', timestamp: '2026-10-20T00:00:00Z', change_type: 'added' },
@@ -137,14 +139,74 @@ describe('project risk changes', () => {
       { projectEntityId: 'one', entityName: 'Example supplier', factor: 'pep', changeType: 'removed', timestamp: '2026-10-21T00:00:00Z' },
       { projectEntityId: 'one', entityName: 'Example supplier', factor: 'factor_1', changeType: 'added', timestamp: '2026-10-22T00:00:00Z' },
       { projectEntityId: 'one', entityName: 'Example supplier', factor: 'factor_0', changeType: 'added', timestamp: '2026-10-21T00:00:00Z' },
+      { projectEntityId: 'one', entityName: 'Example supplier', factor: 'sanctioned', changeType: 'added', timestamp: '2026-10-20T00:00:00Z' },
     ].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)))
-    expect(result.hasMore).toBe(true)
+  })
+
+  it('uses one ontology request for human-readable labels rather than a call per factor', async () => {
+    const fetchMock = stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
+      { id: 'exports_bis_high_priority_items_critical_components_indirect', timestamp: '2026-10-24', change_type: 'added' },
+      { id: 'unknown_factor', timestamp: '2026-10-23', change_type: 'removed' },
+    ] }] } }])
+
+    const result = await getProjectRiskChanges('project-1', 'token', now)
+    expect({
+      requests: fetchMock.mock.calls.length,
+      label: result.changes[0]?.factorLabel,
+      fallback: result.changes[1]?.factorLabel,
+    }).toEqual({
+      requests: 2,
+      label: 'Indirect Exports of Critical Components in USA Bureau of Industry and Security (BIS) Common High Priority Items List',
+      fallback: undefined,
+    })
+  })
+
+  it('returns every factor from one upstream group for the UI to reveal incrementally', async () => {
+    const groups = { data: { risk_changes: [{ project_entity_id: 'one', risk_factors: Array.from({ length: 9 }, (_, i) => ({
+      id: `factor_${i}`, timestamp: `2026-10-24T00:00:0${9 - i}Z`, change_type: 'added',
+    })) }] } }
+    stubResponses([groups])
+
+    expect((await getProjectRiskChanges('project-1', 'token', now)).changes.map((change) => change.factor)).toEqual(
+      Array.from({ length: 9 }, (_, i) => `factor_${i}`),
+    )
+  })
+
+  it('forwards Sayari pagination with the original seven-day window', async () => {
+    const firstPage = { data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
+      { id: 'first', timestamp: '2026-10-24', change_type: 'added' },
+    ] }] }, next: 'upstream-next' }
+    const secondPage = { data: { risk_changes: [{ project_entity_id: 'two', risk_factors: [
+      { id: 'second', timestamp: '2026-10-23', change_type: 'removed' },
+    ] }] } }
+    const fetchMock = stubResponses([firstPage, secondPage])
+    const first = await getProjectRiskChanges('project-1', 'token', now)
+    await getProjectRiskChanges('project-1', 'token', new Date('2026-10-27T12:00:00.000Z'), {
+      next: first.next, asOf: first.to,
+    })
+
+    expect(Object.fromEntries(new URL(String(fetchMock.mock.calls[2]?.[0])).searchParams)).toEqual({
+      limit: '6', 'sort.date': 'desc', 'filter.from': '2026-10-18',
+      'filter.to': '2026-10-25', next: 'upstream-next',
+    })
+  })
+
+  it.each([
+    { next: 'sayari-next-token' }, { asOf: '2026-10-25T12:00:00.000Z' },
+    { next: 'sayari-next-token', asOf: 'invalid' },
+    { next: 'sayari-next-token', asOf: '2026-10-27T12:00:00.000Z' },
+  ])('rejects incomplete or invalid upstream pagination parameters: %j', async (pagination) => {
+      stubResponses([])
+
+      await expect(getProjectRiskChanges('project-1', 'token', now, pagination)).rejects.toMatchObject({
+        name: 'RequestValidationError',
+      })
   })
 
   it('indicates a next page even when fewer than five factors are present', async () => {
     stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
       { id: 'pep', timestamp: '2026-10-24', change_type: 'removed' },
-    ] }] }, next: 'cursor' }])
+    ] }] }, next: 'sayari-next-token' }])
 
     expect((await getProjectRiskChanges('project-1', 'token', now)).hasMore).toBe(true)
   })

@@ -25,10 +25,12 @@ export type ProjectRiskChanges = {
     projectEntityId: string
     entityName?: string
     factor: string
+    factorLabel?: string
     changeType: 'added' | 'removed'
     timestamp: string
   }[]
   hasMore: boolean
+  next?: string
 }
 
 export type EntityPage = {

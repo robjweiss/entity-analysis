@@ -1,5 +1,7 @@
 import { SayariEnvironment, SayariError } from '@sayari/sdk'
 import type { ProjectCount, ProjectExposure, ProjectRiskChanges } from '#shared/api/projects'
+import { RequestValidationError } from './httpErrors.ts'
+import { getRiskFactors } from './projects.ts'
 
 async function requestSayari(url: URL, token: string): Promise<unknown> {
   const response = await fetch(url, {
@@ -59,9 +61,17 @@ export async function getProjectRiskChanges(
   projectId: string,
   token: string,
   now = new Date(),
+  pagination: { next?: string; asOf?: string } = {},
 ): Promise<ProjectRiskChanges> {
-  const to = now.toISOString()
-  const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  if (Boolean(pagination.next) !== Boolean(pagination.asOf)) {
+    throw new RequestValidationError('Provide both "next" and "asOf" to load more changes.', 'next')
+  }
+  const to = pagination.asOf ?? now.toISOString()
+  if (!Number.isFinite(Date.parse(to)) || new Date(to).toISOString() !== to ||
+    Date.parse(to) > now.getTime()) {
+    throw new RequestValidationError('"asOf" must be a valid past ISO timestamp.', 'asOf')
+  }
+  const from = new Date(Date.parse(to) - 7 * 86400000).toISOString()
   const url = new URL(
     `/v1/projects/${encodeURIComponent(projectId)}/entities/changes/risk`,
     SayariEnvironment.Production,
@@ -71,6 +81,7 @@ export async function getProjectRiskChanges(
   // Use calendar dates and enforce the precise rolling window on factor timestamps below.
   url.searchParams.set('filter.from', from.slice(0, 10))
   url.searchParams.set('filter.to', to.slice(0, 10))
+  if (pagination.next) url.searchParams.set('next', pagination.next)
 
   const body = await requestSayari(url, token)
   if (
@@ -82,7 +93,8 @@ export async function getProjectRiskChanges(
   }
   const groups = body.data.risk_changes
   if (groups === undefined && Object.keys(body.data).length === 0) {
-    return { from, to, changes: [], hasMore: false }
+    const next = typeof body.next === 'string' && body.next ? body.next : undefined
+    return { from, to, changes: [], hasMore: Boolean(next), next }
   }
   if (!Array.isArray(groups)) throw new Error('Unexpected Sayari project risk changes response.')
 
@@ -108,7 +120,7 @@ export async function getProjectRiskChanges(
       }
       if (
         Date.parse(factor.timestamp) < Date.parse(from) ||
-        Date.parse(factor.timestamp) > now.getTime()
+        Date.parse(factor.timestamp) > Date.parse(to)
       )
         continue
       changes.push({
@@ -121,10 +133,17 @@ export async function getProjectRiskChanges(
     }
   }
   changes.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+  const labels = changes.length ? await getRiskFactors(token) : new Map<string, { label: string }>()
+  const display = changes.map((change) => {
+    const label = labels.get(change.factor)?.label
+    return { ...change, ...(label && { factorLabel: label }) }
+  })
+  const upcoming = typeof body.next === 'string' && body.next ? body.next : undefined
   return {
     from,
     to,
-    changes: changes.slice(0, 5),
-    hasMore: changes.length > 5 || (!!body.next && changes.length > 0),
+    changes: display,
+    hasMore: Boolean(upcoming),
+    next: upcoming,
   }
 }

@@ -180,14 +180,23 @@ describe('project routes', () => {
     expect(await response.json()).toMatchObject({ changes: [], hasMore: false })
   })
 
-  it.each(['exposure', 'risk-changes'])(
+  it.each(['exposure?unexpected=value', 'risk-changes?unexpected=value'])(
     'rejects unsupported %s query parameters',
     async (route) => {
-      const response = await requestApp(`/api/projects/abc/${route}?next=cursor`)
+      const response = await requestApp(`/api/projects/abc/${route}`)
 
       expect(response.status).toBe(400)
     },
   )
+
+  it('requires a snapshot time when paginating recent changes', async () => {
+    const response = await requestApp('/api/projects/abc/risk-changes?next=upstream-cursor')
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 400,
+      body: { error: { code: 'INVALID_PARAMETER', message: 'Provide both "next" and "asOf" to load more changes.', parameter: 'next' } },
+    })
+  })
 
   it.each(['exposure', 'risk-changes'])('rejects invalid %s project identifiers', async (route) => {
     const response = await requestApp(`/api/projects/%20abc/${route}`)

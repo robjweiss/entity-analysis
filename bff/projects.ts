@@ -81,7 +81,7 @@ function isRiskLevel(level: string): level is Sayari.RiskLevel {
   return level in riskSeverityOrder
 }
 
-async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
+export async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
   const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
