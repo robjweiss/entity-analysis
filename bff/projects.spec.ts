@@ -13,8 +13,19 @@ const entityResponse = {
   next: 'next-entity', prev: 'prev-entity', size: { count: 1, qualifier: 'eq' },
 }
 
+const riskFactorOntologyResponse = {
+  data: [
+    { id: 'sanctioned', level: 'critical' },
+    { id: 'adverse_media', level: 'high' },
+    { id: 'country_risk', level: 'relevant' },
+  ],
+}
+
 function mockEntityResponse(body: object = entityResponse, status = 200) {
-  const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status }))
+  const fetchMock = vi.fn<typeof fetch>(async (input) => new Response(
+    JSON.stringify(String(input).includes('/ontology/risk_factors') ? riskFactorOntologyResponse : body),
+    { status },
+  ))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
@@ -101,8 +112,22 @@ describe('priority queue Sayari gateway', () => {
     expect(response.entities).toEqual([{
       id: 'entity-1', label: 'Example supplier', countries: ['JPN'],
       riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
-      riskFactors: ['sanctioned'], upstreamProducts: ['8536'],
+      riskFactors: ['sanctioned'], riskSeverity: 'critical', upstreamProducts: ['8536'],
     }])
+  })
+
+  it('uses the highest ontology level across an entity risk factors', async () => {
+    mockEntityResponse({
+      ...entityResponse,
+      data: [{
+        ...entityResponse.data[0],
+        risk_factors: [{ id: 'country_risk' }, { id: 'adverse_media' }],
+      }],
+    })
+
+    const response = await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(response.entities[0]?.riskSeverity).toBe('high')
   })
 
   it('uses the API next cursor rather than the SDK next_token field', async () => {

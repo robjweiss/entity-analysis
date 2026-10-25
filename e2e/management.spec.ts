@@ -31,6 +31,7 @@ test.beforeEach(async ({ page }) => {
                   countries: ['JPN'],
                   riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
                   riskFactors: ['sanctioned'],
+                  riskSeverity: 'critical',
                   upstreamProducts: ['8536'],
                 },
               ],
@@ -50,6 +51,12 @@ test('filters the project entities via the BFF', async ({ page }) => {
   await page.getByRole('button', { name: 'Apply filters' }).click()
 
   await expect(page.getByText('No entities match these filters.')).toBeVisible()
+})
+
+test('shows the maximum entity risk severity', async ({ page }) => {
+  await page.goto('/management')
+
+  await expect(page.getByTestId('priority-queue-entity-entity-1')).toContainText('Critical')
 })
 
 test('opens entity risk details from the keyboard', async ({ page }) => {

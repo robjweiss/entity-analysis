@@ -9,6 +9,7 @@ const entity = {
   countries: ['JPN'],
   riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
   riskFactors: ['sanctioned'],
+  riskSeverity: 'critical',
   upstreamProducts: ['8536'],
 }
 const entities = { entities: [entity] }
@@ -50,6 +51,14 @@ describe('ManagementView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="priority-queue-count"]').text()).toBe('1 entity on this page')
+  })
+
+  it('renders the entity maximum risk severity', async () => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).toContain('Critical')
   })
 
   it.each([

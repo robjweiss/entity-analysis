@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "run-p dev:client dev:bff",
     "dev:client": "vite",
-    "dev:bff": "node --env-file-if-exists=.env bff/index.ts",
+    "dev:bff": "node --watch --env-file-if-exists=.env bff/index.ts",
     "bff": "node --env-file-if-exists=.env bff/index.ts",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",

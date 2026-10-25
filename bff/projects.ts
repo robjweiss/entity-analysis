@@ -14,6 +14,7 @@ export type EntityPage = {
     countries: string[]
     riskCategories: { id: string; label: string }[]
     riskFactors: string[]
+    riskSeverity?: Sayari.RiskLevel
     upstreamProducts: string[]
   }[]
   next?: string
@@ -106,6 +107,57 @@ type SayariEntityRiskChanges = {
   next?: string | null
 }
 
+type SayariRiskFactorOntology = {
+  data?: {
+    id: string
+    level: string
+  }[]
+}
+
+const riskSeverityOrder: Record<Sayari.RiskLevel, number> = {
+  critical: 4,
+  high: 3,
+  elevated: 2,
+  relevant: 1,
+}
+function isRiskLevel(level: string): level is Sayari.RiskLevel {
+  return level in riskSeverityOrder
+}
+
+async function getRiskFactorLevels(token: string): Promise<Map<string, Sayari.RiskLevel>> {
+  const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (!response.ok) throw new SayariError({ statusCode: response.status })
+  const ontology = (await response.json()) as SayariRiskFactorOntology
+  if (!Array.isArray(ontology.data)) {
+    throw new Error('Unexpected Sayari risk-factor ontology response.')
+  }
+
+  const levels = new Map<string, Sayari.RiskLevel>()
+  for (const factor of ontology.data) {
+    if (!factor || typeof factor.id !== 'string' || !isRiskLevel(factor.level)) {
+      throw new Error('Unexpected Sayari risk-factor ontology response.')
+    }
+    levels.set(factor.id, factor.level)
+  }
+  return levels
+}
+
+function maximumRiskSeverity(
+  riskFactors: { id: string }[],
+  levels: Map<string, Sayari.RiskLevel>,
+): Sayari.RiskLevel | undefined {
+  return riskFactors.reduce<Sayari.RiskLevel | undefined>((maximum, { id }) => {
+    const level = levels.get(id)
+    if (!level || (maximum && riskSeverityOrder[level] <= riskSeverityOrder[maximum]))
+      return maximum
+    return level
+  }, undefined)
+}
+
 export async function getProjects(
   client: SayariClient,
   cursors: { next?: string; prev?: string } = {},
@@ -138,6 +190,8 @@ export async function getProjectEntities(
   if (filters.next) url.searchParams.set('next', filters.next)
   if (filters.prev) url.searchParams.set('prev', filters.prev)
 
+  // The SDK parser rejects live ontology records that omit do_not_render_metadata.
+  // Fetch and narrowly parse the wire response until its schema is corrected.
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
@@ -145,6 +199,7 @@ export async function getProjectEntities(
   if (!response.ok) throw new SayariError({ statusCode: response.status })
   const page = (await response.json()) as SayariEntityPage
   if (!Array.isArray(page?.data)) throw new Error('Unexpected Sayari entity response.')
+  const levels = await getRiskFactorLevels(token)
 
   return {
     entities: page.data.map((entity) => ({
@@ -153,6 +208,7 @@ export async function getProjectEntities(
       countries: entity.countries,
       riskCategories: entity.risk_categories.map(({ id, label }) => ({ id, label })),
       riskFactors: entity.risk_factors.map(({ id }) => id),
+      riskSeverity: maximumRiskSeverity(entity.risk_factors, levels),
       upstreamProducts: entity.upstream.products,
     })),
     next: page.next,
@@ -210,21 +266,23 @@ export async function getProjectEntityDetail(
       level: factor.level,
       riskCategories: (factor.risk_categories ?? []).map(({ id, label }) => ({ id, label })),
       sourceEntityIds: factor.source_entity_ids ?? [],
-      networkPaths: (factor.network_paths ?? []).map((path) => path.map((entity) => ({
-        sayariEntityId: entity.sayari_entity_id,
-        sayariEntityLabel: entity.sayari_entity_label,
-        relationshipType: entity.relationship_type,
-        relationshipStatus: entity.relationship_status,
-        former: entity.former,
-        firstObserved: entity.first_observed,
-        lastObserved: entity.last_observed,
-        startDate: entity.start_date,
-        shares: entity.shares && {
-          percentage: entity.shares.percentage ?? undefined,
-          numShares: entity.shares.num_shares ?? undefined,
-          monetaryValue: entity.shares.monetary_value ?? undefined,
-        },
-      }))),
+      networkPaths: (factor.network_paths ?? []).map((path) =>
+        path.map((entity) => ({
+          sayariEntityId: entity.sayari_entity_id,
+          sayariEntityLabel: entity.sayari_entity_label,
+          relationshipType: entity.relationship_type,
+          relationshipStatus: entity.relationship_status,
+          former: entity.former,
+          firstObserved: entity.first_observed,
+          lastObserved: entity.last_observed,
+          startDate: entity.start_date,
+          shares: entity.shares && {
+            percentage: entity.shares.percentage ?? undefined,
+            numShares: entity.shares.num_shares ?? undefined,
+            monetaryValue: entity.shares.monetary_value ?? undefined,
+          },
+        })),
+      ),
     })),
     riskChanges: (changes.data?.risk_factors ?? []).map(({ id, timestamp, change_type }) => ({
       id,

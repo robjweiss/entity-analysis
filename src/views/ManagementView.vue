@@ -13,6 +13,21 @@ import type { EntityDetail, EntityPage, ProjectPage } from '../../bff/projects.t
 
 type Cursor = { next?: string; prev?: string }
 type Entity = EntityPage['entities'][number]
+type RiskSeverity = NonNullable<Entity['riskSeverity']>
+
+const riskSeverityLabels: Record<RiskSeverity, string> = {
+  critical: 'Critical',
+  high: 'High',
+  elevated: 'Elevated',
+  relevant: 'Relevant',
+}
+
+const riskSeverityClasses: Record<RiskSeverity, string> = {
+  critical: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200',
+  high: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200',
+  elevated: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+  relevant: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200',
+}
 
 const projectPage = ref<ProjectPage>()
 const projectCursor = ref<Cursor>({})
@@ -256,10 +271,11 @@ function clearFilters() {
         No entities match these filters.
       </p>
       <div v-else-if="entityPage" class="overflow-x-auto">
-        <table aria-label="Priority queue entities" class="w-full min-w-[36rem] text-left text-sm">
+        <table aria-label="Priority queue entities" class="w-full min-w-[44rem] text-left text-sm">
           <thead class="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th scope="col" class="px-4 py-3 font-medium">Entity</th>
+              <th scope="col" class="px-4 py-3 font-medium">Risk severity</th>
               <th scope="col" class="px-4 py-3 font-medium">Risk categories</th>
               <th scope="col" class="px-4 py-3 font-medium">Products</th>
             </tr>
@@ -281,6 +297,16 @@ function clearFilters() {
                   <span class="font-medium">{{ entity.label }}</span>
                   <span class="text-muted-foreground">{{ entity.countries.join(', ') }}</span>
                 </span>
+              </td>
+              <td class="px-4 py-3">
+                <span
+                  v-if="entity.riskSeverity"
+                  :class="riskSeverityClasses[entity.riskSeverity]"
+                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                >
+                  {{ riskSeverityLabels[entity.riskSeverity] }}
+                </span>
+                <span v-else class="text-muted-foreground">—</span>
               </td>
               <td class="px-4 py-3">
                 <span class="flex flex-wrap gap-1.5">
