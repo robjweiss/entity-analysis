@@ -8,9 +8,8 @@ const entity = {
   label: 'Example supplier',
   countries: ['JPN'],
   riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
-  riskFactors: ['sanctioned'],
+  riskFactors: [{ id: 'sanctioned', label: 'Sanctioned' }],
   riskSeverity: 'critical',
-  upstreamProducts: ['8536'],
 }
 const entities = { entities: [entity] }
 const detail = {
@@ -59,6 +58,33 @@ describe('ManagementView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).toContain('Critical')
+  })
+
+  it('renders human-readable risk factors in the entity list', async () => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-risk-factors"]').text()).toContain(
+      'Sanctioned',
+    )
+  })
+
+  it('summarizes risk factors beyond the first two', async () => {
+    mockApi({
+      entities: [{
+        ...entity,
+        riskFactors: [
+          { id: 'sanctioned', label: 'Sanctioned' },
+          { id: 'export_controls', label: 'Export controls' },
+          { id: 'forced_labor', label: 'Forced labor' },
+        ],
+      }],
+    })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-risk-factors"]').text()).toContain('+1 more')
   })
 
   it('keeps country codes out of the entity list', async () => {

@@ -8,16 +8,16 @@ const entityResponse = {
     project_entity_id: 'entity-1', label: 'Example supplier',
     attributes: { name: { match_resolution: true, values: [{ value: 'Example supplier' }] } },
     countries: ['JPN'], risk_categories: [{ id: 'sanctions', label: 'Sanctions' }],
-    risk_factors: [{ id: 'sanctioned' }], upstream: { products: ['8536'] },
+    risk_factors: [{ id: 'sanctioned' }],
   }],
   next: 'next-entity', prev: 'prev-entity', size: { count: 1, qualifier: 'eq' },
 }
 
 const riskFactorOntologyResponse = {
   data: [
-    { id: 'sanctioned', level: 'critical' },
-    { id: 'adverse_media', level: 'high' },
-    { id: 'country_risk', level: 'relevant' },
+    { id: 'sanctioned', label: 'Sanctioned', level: 'critical' },
+    { id: 'adverse_media', label: 'Adverse media', level: 'high' },
+    { id: 'country_risk', label: 'Country risk', level: 'relevant' },
   ],
 }
 
@@ -112,8 +112,21 @@ describe('priority queue Sayari gateway', () => {
     expect(response.entities).toEqual([{
       id: 'entity-1', label: 'Example supplier', countries: ['JPN'],
       riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
-      riskFactors: ['sanctioned'], riskSeverity: 'critical', upstreamProducts: ['8536'],
+      riskFactors: [{ id: 'sanctioned', label: 'Sanctioned' }], riskSeverity: 'critical',
     }])
+  })
+
+  it('maps risk factor identifiers to labels from the existing ontology response', async () => {
+    mockEntityResponse({
+      ...entityResponse,
+      data: [{ ...entityResponse.data[0], risk_factors: [{ id: 'adverse_media' }] }],
+    })
+
+    const response = await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(response.entities[0]?.riskFactors).toEqual([
+      { id: 'adverse_media', label: 'Adverse media' },
+    ])
   })
 
   it('uses the highest ontology level across an entity risk factors', async () => {

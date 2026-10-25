@@ -13,9 +13,8 @@ export type EntityPage = {
     label: string
     countries: string[]
     riskCategories: { id: string; label: string }[]
-    riskFactors: string[]
+    riskFactors: { id: string; label: string }[]
     riskSeverity?: Sayari.RiskLevel
-    upstreamProducts: string[]
   }[]
   next?: string
   prev?: string
@@ -63,7 +62,6 @@ type SayariEntityPage = {
     countries: string[]
     risk_categories: { id: string; label: string }[]
     risk_factors: { id: string }[]
-    upstream: { products: string[] }
   }[]
   next?: string
   prev?: string
@@ -110,9 +108,12 @@ type SayariEntityRiskChanges = {
 type SayariRiskFactorOntology = {
   data?: {
     id: string
+    label?: string
     level: string
   }[]
 }
+
+type RiskFactorMetadata = { label: string; level: Sayari.RiskLevel }
 
 const riskSeverityOrder: Record<Sayari.RiskLevel, number> = {
   critical: 4,
@@ -124,7 +125,7 @@ function isRiskLevel(level: string): level is Sayari.RiskLevel {
   return level in riskSeverityOrder
 }
 
-async function getRiskFactorLevels(token: string): Promise<Map<string, Sayari.RiskLevel>> {
+async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
   const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -136,22 +137,25 @@ async function getRiskFactorLevels(token: string): Promise<Map<string, Sayari.Ri
     throw new Error('Unexpected Sayari risk-factor ontology response.')
   }
 
-  const levels = new Map<string, Sayari.RiskLevel>()
+  const riskFactors = new Map<string, RiskFactorMetadata>()
   for (const factor of ontology.data) {
     if (!factor || typeof factor.id !== 'string' || !isRiskLevel(factor.level)) {
       throw new Error('Unexpected Sayari risk-factor ontology response.')
     }
-    levels.set(factor.id, factor.level)
+    riskFactors.set(factor.id, {
+      label: factor.label || factor.id.replace(/_/g, ' '),
+      level: factor.level,
+    })
   }
-  return levels
+  return riskFactors
 }
 
 function maximumRiskSeverity(
   riskFactors: { id: string }[],
-  levels: Map<string, Sayari.RiskLevel>,
+  ontology: Map<string, RiskFactorMetadata>,
 ): Sayari.RiskLevel | undefined {
   return riskFactors.reduce<Sayari.RiskLevel | undefined>((maximum, { id }) => {
-    const level = levels.get(id)
+    const level = ontology.get(id)?.level
     if (!level || (maximum && riskSeverityOrder[level] <= riskSeverityOrder[maximum]))
       return maximum
     return level
@@ -199,18 +203,24 @@ export async function getProjectEntities(
   if (!response.ok) throw new SayariError({ statusCode: response.status })
   const page = (await response.json()) as SayariEntityPage
   if (!Array.isArray(page?.data)) throw new Error('Unexpected Sayari entity response.')
-  const levels = await getRiskFactorLevels(token)
+  const riskFactorOntology = await getRiskFactors(token)
 
   return {
-    entities: page.data.map((entity) => ({
-      id: entity.project_entity_id,
-      label: entity.label,
-      countries: entity.countries,
-      riskCategories: entity.risk_categories.map(({ id, label }) => ({ id, label })),
-      riskFactors: entity.risk_factors.map(({ id }) => id),
-      riskSeverity: maximumRiskSeverity(entity.risk_factors, levels),
-      upstreamProducts: entity.upstream.products,
-    })),
+    entities: page.data.map((entity) => {
+      const mappedEntity: EntityPage['entities'][number] = {
+        id: entity.project_entity_id,
+        label: entity.label,
+        countries: entity.countries,
+        riskCategories: entity.risk_categories.map(({ id, label }) => ({ id, label })),
+        riskFactors: entity.risk_factors.map(({ id }) => ({
+          id,
+          label: riskFactorOntology.get(id)?.label ?? id.replace(/_/g, ' '),
+        })),
+        riskSeverity: maximumRiskSeverity(entity.risk_factors, riskFactorOntology),
+      }
+
+      return mappedEntity
+    }),
     next: page.next,
     prev: page.prev,
   }

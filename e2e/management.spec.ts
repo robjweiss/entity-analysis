@@ -30,9 +30,8 @@ test.beforeEach(async ({ page }) => {
                   label: 'Example supplier',
                   countries: ['JPN', 'USA'],
                   riskCategories: [{ id: 'sanctions', label: 'Sanctions' }],
-                  riskFactors: ['sanctioned'],
+                  riskFactors: [{ id: 'sanctioned', label: 'Sanctioned' }],
                   riskSeverity: 'critical',
-                  upstreamProducts: ['8536'],
                 },
               ],
         },
@@ -57,6 +56,12 @@ test('shows the maximum entity risk severity', async ({ page }) => {
   await page.goto('/management')
 
   await expect(page.getByTestId('priority-queue-entity-entity-1')).toContainText('Critical')
+})
+
+test('shows human-readable risk factors in the entity list', async ({ page }) => {
+  await page.goto('/management')
+
+  await expect(page.getByTestId('priority-queue-risk-factors')).toContainText('Sanctioned')
 })
 
 test('keeps country codes out of the overview', async ({ page }) => {

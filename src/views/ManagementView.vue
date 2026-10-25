@@ -271,7 +271,7 @@ function clearFilters() {
               <th scope="col" class="px-4 py-3 font-medium">Entity</th>
               <th scope="col" class="px-4 py-3 font-medium">Risk severity</th>
               <th scope="col" class="px-4 py-3 font-medium">Risk categories</th>
-              <th scope="col" class="px-4 py-3 font-medium">Products</th>
+              <th scope="col" class="px-4 py-3 font-medium">Risk factors</th>
             </tr>
           </thead>
           <tbody class="divide-y">
@@ -311,7 +311,21 @@ function clearFilters() {
                   </Badge>
                 </span>
               </td>
-              <td class="px-4 py-3">{{ entity.upstreamProducts.join(', ') || '—' }}</td>
+              <td class="px-4 py-3" data-testid="priority-queue-risk-factors">
+                <span v-if="entity.riskFactors.length" class="flex flex-wrap gap-1.5">
+                  <Badge
+                    v-for="factor in entity.riskFactors.slice(0, 2)"
+                    :key="factor.id"
+                    variant="muted"
+                  >
+                    {{ factor.label }}
+                  </Badge>
+                  <span v-if="entity.riskFactors.length > 2" class="text-muted-foreground">
+                    +{{ entity.riskFactors.length - 2 }} more
+                  </span>
+                </span>
+                <span v-else class="text-muted-foreground">—</span>
+              </td>
             </tr>
           </tbody>
         </table>
