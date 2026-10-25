@@ -129,6 +129,26 @@ describe('priority queue Sayari gateway', () => {
     ])
   })
 
+  it('keeps each resolved Sayari match available for entity investigation', async () => {
+    mockEntityResponse({
+      ...entityResponse,
+      data: [{
+        ...entityResponse.data[0],
+        matches: [
+          { sayari_entity_id: 'sayari-1', label: 'First resolved entity' },
+          { sayari_entity_id: 'sayari-2', label: 'Second resolved entity' },
+        ],
+      }],
+    })
+
+    const response = await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(response.entities[0]?.matches).toEqual([
+      { id: 'sayari-1', label: 'First resolved entity' },
+      { id: 'sayari-2', label: 'Second resolved entity' },
+    ])
+  })
+
   it('uses the highest ontology level across an entity risk factors', async () => {
     mockEntityResponse({
       ...entityResponse,

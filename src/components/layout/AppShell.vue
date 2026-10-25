@@ -36,7 +36,7 @@ const destinations = [
 ]
 
 const currentDestination = computed(() =>
-  destinations.find((destination) => destination.path === route.path) ?? destinations[0]!,
+  destinations.find((destination) => route.path.startsWith(destination.path)) ?? destinations[0]!,
 )
 
 function switchRole(path: string) {

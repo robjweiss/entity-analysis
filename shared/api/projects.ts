@@ -14,6 +14,7 @@ export type EntityPage = {
     riskCategories: { id: string; label: string }[]
     riskFactors: { id: string; label: string }[]
     riskSeverity?: RiskLevel
+    matches?: { id: string; label: string }[]
   }[]
   next?: string
   prev?: string

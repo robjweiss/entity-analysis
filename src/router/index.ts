@@ -28,7 +28,7 @@ const router = createRouter({
           meta: { title: 'Priority Queue', role: 'Management' },
         },
         {
-          path: 'analyst',
+          path: 'analyst/:entityId?',
           name: 'analyst',
           component: AnalystView,
           meta: { title: 'Entity Investigation', role: 'Analyst' },

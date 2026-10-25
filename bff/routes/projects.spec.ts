@@ -10,12 +10,14 @@ const sayari = vi.hoisted(() => ({
   getAccessToken: vi.fn<(...args: unknown[]) => Promise<string>>(),
   getProjectEntityRiskSummary: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   getProjectEntityRiskChanges: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  getEntity: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
 }))
 
 vi.mock('../sayari.ts', () => ({
   getAccessToken: sayari.getAccessToken,
   getSayariClient: () => ({
     project: { getProjects: sayari.getProjects },
+    entity: { getEntity: sayari.getEntity },
     projectEntity: {
       getProjectEntityRiskSummary: sayari.getProjectEntityRiskSummary,
       getProjectEntityRiskChanges: sayari.getProjectEntityRiskChanges,
@@ -68,6 +70,21 @@ beforeEach(() => {
   sayari.getAccessToken.mockResolvedValue('test-token')
   sayari.getProjectEntityRiskSummary.mockResolvedValue({ data: { riskFactors: [] } })
   sayari.getProjectEntityRiskChanges.mockResolvedValue({ data: { riskFactors: [] } })
+  sayari.getEntity.mockResolvedValue({
+    relationships: {
+      data: [{
+        target: { id: 'related-1', label: 'Related entity', countries: ['JPN'], sanctioned: false, pep: false },
+        types: { has_director: [] },
+      }],
+      size: { count: 11, qualifier: 'eq' },
+      next: 'next-cursor',
+    },
+    referencedBy: {
+      data: [{ type: 'about', record: { id: 'record-1', label: 'Company record', source: 'registry', publicationDate: '2026-01-01' } }],
+      size: { count: 12, qualifier: 'eq' },
+      next: 'next-record-cursor',
+    },
+  })
   stubEntityApi()
 })
 
@@ -220,6 +237,34 @@ describe('project routes', () => {
       'https://api.sayari.com/v1/projects/abc/entities/entity-1/changes/risk?limit=100',
     ])
     expect(response.status).toBe(200)
+  })
+
+  it('loads the next relationship page with the provided Sayari cursor', async () => {
+    const response = await requestApp('/api/entities/entity-1/relationships?next=next-cursor')
+
+    expect(sayari.getEntity).toHaveBeenCalledWith('entity-1', expect.objectContaining({
+      relationshipsLimit: 10,
+      relationshipsNext: 'next-cursor',
+    }))
+    expect(await response.json()).toMatchObject({
+      relationships: [{ id: 'related-1', label: 'Related entity', types: ['Has Director'] }],
+      relationshipCount: 11,
+      nextRelationship: 'next-cursor',
+    })
+  })
+
+  it('loads the next supporting-record page with its Sayari cursor', async () => {
+    const response = await requestApp('/api/entities/entity-1/records?next=record-cursor')
+
+    expect(sayari.getEntity).toHaveBeenCalledWith('entity-1', expect.objectContaining({
+      referencedByLimit: 10,
+      referencedByNext: 'record-cursor',
+    }))
+    expect(await response.json()).toMatchObject({
+      records: [{ id: 'record-1', label: 'Company record', type: 'about' }],
+      recordCount: 12,
+      nextRecord: 'next-record-cursor',
+    })
   })
 
   it('does not expose upstream project errors', async () => {

@@ -17,6 +17,7 @@ type SayariEntityPage = {
     countries: string[]
     risk_categories: { id: string; label: string }[]
     risk_factors: { id: string }[]
+    matches?: { sayari_entity_id: string; label: string }[]
   }[]
   next?: string
   prev?: string
@@ -172,6 +173,13 @@ export async function getProjectEntities(
           label: riskFactorOntology.get(id)?.label ?? id.replace(/_/g, ' '),
         })),
         riskSeverity: maximumRiskSeverity(entity.risk_factors, riskFactorOntology),
+      }
+      const matches = (entity.matches ?? []).filter(
+        (match): match is { sayari_entity_id: string; label: string } =>
+          typeof match?.sayari_entity_id === 'string' && typeof match.label === 'string',
+      )
+      if (matches.length) {
+        mappedEntity.matches = matches.map((match) => ({ id: match.sayari_entity_id, label: match.label }))
       }
 
       return mappedEntity
