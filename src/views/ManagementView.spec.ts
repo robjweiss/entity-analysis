@@ -174,7 +174,7 @@ describe('ManagementView', () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities/entity-1')
   })
 
-  it('renders the fetched factor severity in the detail sheet', async () => {
+  it('renders the fetched factor level as a severity badge in the detail sheet', async () => {
     mockApi()
     const wrapper = mount(ManagementView)
     await flushPromises()
@@ -182,7 +182,9 @@ describe('ManagementView', () => {
     await wrapper.get('[data-testid="priority-queue-entity-entity-1"]').trigger('click')
     await flushPromises()
 
-    expect(document.body.textContent).toContain('Sanctioned · critical')
+    expect(document.body.querySelector('[data-testid="risk-factor-level"]')?.textContent).toBe(
+      'Critical',
+    )
   })
 
   it('shows the empty state returned by the BFF', async () => {

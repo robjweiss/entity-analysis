@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Search } from '@lucide/vue'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
   Sheet,
@@ -20,13 +21,6 @@ const riskSeverityLabels: Record<RiskSeverity, string> = {
   high: 'High',
   elevated: 'Elevated',
   relevant: 'Relevant',
-}
-
-const riskSeverityClasses: Record<RiskSeverity, string> = {
-  critical: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200',
-  high: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200',
-  elevated: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-  relevant: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200',
 }
 
 const projectPage = ref<ProjectPage>()
@@ -298,24 +292,23 @@ function clearFilters() {
                 </span>
               </td>
               <td class="px-4 py-3">
-                <span
+                <Badge
                   v-if="entity.riskSeverity"
-                  :class="riskSeverityClasses[entity.riskSeverity]"
-                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                  :variant="entity.riskSeverity"
                 >
                   {{ riskSeverityLabels[entity.riskSeverity] }}
-                </span>
+                </Badge>
                 <span v-else class="text-muted-foreground">—</span>
               </td>
               <td class="px-4 py-3">
                 <span class="flex flex-wrap gap-1.5">
-                  <span
+                  <Badge
                     v-for="category in entity.riskCategories"
                     :key="category.id"
-                    class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium"
+                    variant="muted"
                   >
                     {{ category.label }}
-                  </span>
+                  </Badge>
                 </span>
               </td>
               <td class="px-4 py-3">{{ entity.upstreamProducts.join(', ') || '—' }}</td>
@@ -369,7 +362,16 @@ function clearFilters() {
                 :key="factor.id"
                 class="rounded-md border p-3 text-sm"
               >
-                {{ factor.label }} · {{ factor.level }}
+                <div class="flex items-start justify-between gap-3">
+                  <span>{{ factor.label }}</span>
+                  <Badge
+                    data-testid="risk-factor-level"
+                    :variant="factor.level"
+                    class="shrink-0"
+                  >
+                    {{ riskSeverityLabels[factor.level] }}
+                  </Badge>
+                </div>
               </li>
             </ul>
           </div>

@@ -1,3 +1,8 @@
+## UI Library
+
+- This project uses shadcn-vue and tailwind, rely on these for UI work
+- Avoid custom implementations, ask theuser before any custom implementation
+
 ## Sayari SDK
 
 - Before implementing a feature that integrates with a Sayari data endpoint, first verify that the candidate SDK method works with a representative live response. Use a short script, temporary debug route, or other focused probe—whichever is safest and quickest.

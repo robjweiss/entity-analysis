@@ -72,10 +72,10 @@ test('shows all countries in entity details', async ({ page }) => {
   await expect(page.getByRole('dialog')).toContainText('JPN, USA')
 })
 
-test('opens entity risk details from the keyboard', async ({ page }) => {
+test('opens entity risk details from the keyboard and shows factor severity', async ({ page }) => {
   await page.goto('/management')
   await page.getByTestId('priority-queue-entity-entity-1').focus()
   await page.keyboard.press('Enter')
 
-  await expect(page.getByRole('dialog')).toContainText('Sanctioned · critical')
+  await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
 })
