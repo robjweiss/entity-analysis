@@ -86,7 +86,7 @@ describe('project risk changes', () => {
       path: '/v1/projects/a%2Fb/entities/changes/risk',
       query: {
         limit: '6', 'sort.date': 'desc',
-        'filter.from': '2026-10-18T12:00:00.000Z', 'filter.to': '2026-10-25T12:00:00.000Z',
+        'filter.from': '2026-10-18', 'filter.to': '2026-10-25',
       },
       authorization: 'Bearer secret',
     })
@@ -99,6 +99,24 @@ describe('project risk changes', () => {
       from: '2026-10-18T12:00:00.000Z', to: '2026-10-25T12:00:00.000Z',
       changes: [], hasMore: false,
     })
+  })
+
+  it('excludes factors outside the precise seven-day window even when Sayari includes their calendar day', async () => {
+    stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
+      { id: 'old', timestamp: '2026-10-18T11:59:59Z', change_type: 'added' },
+      { id: 'recent', timestamp: '2026-10-18T12:00:00Z', change_type: 'added' },
+      { id: 'future', timestamp: '2026-10-25T12:00:01Z', change_type: 'added' },
+    ] }] } }])
+
+    expect((await getProjectRiskChanges('project-1', 'token', now)).changes.map((change) => change.factor)).toEqual(['recent'])
+  })
+
+  it('does not suggest more in-window changes when only pre-window changes were returned', async () => {
+    stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
+      { id: 'old', timestamp: '2026-10-18T11:59:59Z', change_type: 'added' },
+    ] }] }, next: 'cursor' }])
+
+    expect((await getProjectRiskChanges('project-1', 'token', now)).hasMore).toBe(false)
   })
 
   it('flattens factor additions and removals, sorting and limiting displayed items', async () => {
