@@ -1,4 +1,4 @@
-import type { SayariClient } from '@sayari/sdk'
+import type { Sayari, SayariClient } from '@sayari/sdk'
 import { SayariEnvironment } from '@sayari/sdk'
 import { getAccessToken } from './sayari.ts'
 import { entityRiskOntologyEntrySchema, riskFactorOntologyResponseSchema } from './sayariSchemas.ts'
@@ -7,7 +7,7 @@ import type { EntityInvestigation } from '#shared/api/entities'
 
 export type { EntityInvestigation } from '#shared/api/entities'
 
-function mapRecordPage(entity: Awaited<ReturnType<SayariClient['entity']['getEntity']>>) {
+function mapRecordPage(entity: Sayari.GetEntityResponse) {
   const page = entity.referencedBy
   return {
     records: (page?.data ?? []).map(({ record, type }) => ({
@@ -22,7 +22,7 @@ function mapRecordPage(entity: Awaited<ReturnType<SayariClient['entity']['getEnt
   }
 }
 
-function mapRelationshipPage(entity: Awaited<ReturnType<SayariClient['entity']['getEntity']>>) {
+function mapRelationshipPage(entity: Sayari.GetEntityResponse) {
   const page = entity.relationships
   return {
     relationships: (page?.data ?? []).map((relationship) => ({
@@ -42,11 +42,13 @@ function displayLabel(id: string) {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-const severityOrder = { critical: 4, high: 3, elevated: 2, relevant: 1 } as const
-type RiskLevel = keyof typeof severityOrder
+const severityOrder: Record<Sayari.RiskLevel, number> = { critical: 4, high: 3, elevated: 2, relevant: 1 }
 
-function isRiskLevel(value: unknown): value is RiskLevel {
-  return typeof value === 'string' && value in severityOrder
+function attributeValues(attribute: Sayari.NameInfo | Sayari.BusinessPurposeInfo | undefined) {
+  if (!attribute) return []
+  return attribute.data.flatMap(({ properties }) =>
+    typeof properties.value === 'string' ? [properties.value] : [],
+  )
 }
 
 async function getRiskOntology(client: SayariClient) {
@@ -82,24 +84,17 @@ export async function getEntityInvestigation(client: SayariClient, id: string): 
   ])
 
   const attributes = summary.attributes
-  const values = (attribute: unknown) => {
-    const data = (attribute as { data?: { properties?: { value?: unknown } }[] } | undefined)?.data
-    return Array.isArray(data)
-      ? data.map((item) => item.properties?.value).filter((value): value is string => typeof value === 'string')
-      : []
-  }
   const relationshipPage = mapRelationshipPage(entity)
   const recordPage = mapRecordPage(entity)
-  const risks = Object.entries(summary.risk ?? {})
+  const risks = Object.entries(summary.risk)
     .flatMap(([id, risk]) => {
-      const item = risk as { level?: unknown }
-      if (!isRiskLevel(item.level)) return []
+      if (!risk) return []
       const definition = ontology.get(id)
       return [{
         id,
         label: definition?.label || displayLabel(id),
         description: definition?.description,
-        level: item.level,
+        level: risk.level,
       }]
     })
     .sort((left, right) => severityOrder[right.level] - severityOrder[left.level] || left.label.localeCompare(right.label))
@@ -117,9 +112,9 @@ export async function getEntityInvestigation(client: SayariClient, id: string): 
       pep: summary.pep,
       closed: summary.closed,
       identifiers: summary.identifiers.map(({ label, value }) => ({ label, value })),
-      names: values(attributes?.name),
+      names: attributeValues(attributes?.name),
       addresses: summary.addresses ?? [],
-      businessPurposes: values(attributes?.businessPurpose),
+      businessPurposes: attributeValues(attributes?.businessPurpose),
       sources: Object.values(summary.sourceCount ?? []).map(({ label, count }) => ({ label, count })).sort((left, right) => right.count - left.count),
     },
     risks,

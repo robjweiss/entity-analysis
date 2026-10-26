@@ -14,6 +14,7 @@ const summary = {
   risk: {
     sanctioned: { level: 'critical', value: true },
     cpi_score: { level: 'relevant', value: 71 },
+    unavailable: undefined,
   },
 }
 
@@ -31,12 +32,18 @@ const entity = {
   },
 }
 
+type EntityFixture = Omit<typeof entity, 'relationships' | 'referencedBy'> & {
+  relationships: Omit<typeof entity.relationships, 'next'> & { next: unknown }
+  referencedBy: Omit<typeof entity.referencedBy, 'next'> & { next: unknown }
+}
+
 function createClient() {
+  const getEntity = vi.fn<() => Promise<EntityFixture>>().mockResolvedValue(entity)
   return {
     client: {
       entity: {
         entitySummary: vi.fn<() => Promise<typeof summary>>().mockResolvedValue(summary),
-        getEntity: vi.fn<() => Promise<typeof entity>>().mockResolvedValue(entity),
+        getEntity,
       },
       auth: {
         getToken: vi.fn<() => Promise<{ accessToken: string; expiresIn: number }>>().mockResolvedValue({
@@ -45,6 +52,7 @@ function createClient() {
         }),
       },
     } as unknown as SayariClient,
+    getEntity,
   }
 }
 
@@ -170,6 +178,14 @@ describe('entity investigation Sayari gateway', () => {
     })
   })
 
+  it('omits unavailable risk data', async () => {
+    const { client } = createClient()
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.risks).not.toContainEqual(expect.objectContaining({ id: 'unavailable' }))
+  })
+
   it('maps relationship and record previews with their pagination state', async () => {
     const { client } = createClient()
 
@@ -209,5 +225,29 @@ describe('entity investigation Sayari gateway', () => {
       id: 'record-1', label: 'Company Record', type: 'about',
       publicationDate: '2026-01-01', acquisitionDate: '2026-01-02',
     }])
+  })
+
+  it('omits a non-string relationship cursor', async () => {
+    const { client, getEntity } = createClient()
+    getEntity.mockResolvedValueOnce({
+      ...entity,
+      relationships: { ...entity.relationships, next: false },
+    })
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.nextRelationship).toBeUndefined()
+  })
+
+  it('omits a non-string record cursor', async () => {
+    const { client, getEntity } = createClient()
+    getEntity.mockResolvedValueOnce({
+      ...entity,
+      referencedBy: { ...entity.referencedBy, next: { cursor: 'more' } },
+    })
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.nextRecord).toBeUndefined()
   })
 })
