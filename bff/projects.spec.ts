@@ -52,10 +52,11 @@ function mockDetailResponses(
   changes: object = { filters: {}, limit: 100, data: {} },
   summaryStatus = 200,
   changesStatus = 200,
+  summary: object = riskSummaryResponse,
 ) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const isSummary = String(input).includes('/risk_summary')
-    return new Response(JSON.stringify(isSummary ? riskSummaryResponse : changes), {
+    return new Response(JSON.stringify(isSummary ? summary : changes), {
       status: isSummary ? summaryStatus : changesStatus,
     })
   })
@@ -175,6 +176,15 @@ describe('priority queue Sayari gateway', () => {
     expect((await getProjectEntities('project-1', {}, 'test-token')).prev).toBe('prev-entity')
   })
 
+  it('normalizes nullable entity cursors to the BFF optional cursor shape', async () => {
+    mockEntityResponse({ ...entityResponse, next: null, prev: null })
+
+    expect(await getProjectEntities('project-1', {}, 'test-token')).toMatchObject({
+      next: undefined,
+      prev: undefined,
+    })
+  })
+
   it('omits the unused upstream total from the BFF response', async () => {
     mockEntityResponse()
 
@@ -192,6 +202,32 @@ describe('priority queue Sayari gateway', () => {
     mockEntityResponse({ data: 'not a list' })
 
     await expect(getProjectEntities('project-1', {}, 'test-token')).rejects.toThrow('Unexpected Sayari entity response.')
+  })
+
+  it.each([
+    { project_entity_id: 1 },
+    { label: null },
+    { countries: ['JPN', 1] },
+    { risk_categories: [{ id: 'sanctions', label: null }] },
+    { risk_factors: [{ id: 4 }] },
+  ])('rejects malformed nested entity list fields: %j', async (malformed) => {
+    mockEntityResponse({
+      ...entityResponse,
+      data: [{ ...entityResponse.data[0], ...malformed }],
+    })
+
+    await expect(getProjectEntities('project-1', {}, 'test-token'))
+      .rejects.toThrow('Unexpected Sayari entity response.')
+  })
+
+  it('skips invalid optional entity matches without rejecting otherwise valid records', async () => {
+    mockEntityResponse({
+      ...entityResponse,
+      data: [{ ...entityResponse.data[0], matches: [null, { sayari_entity_id: 'ok', label: 'Valid' }, { sayari_entity_id: 4, label: 'Invalid' }] }],
+    })
+
+    expect((await getProjectEntities('project-1', {}, 'test-token')).entities[0]?.matches)
+      .toEqual([{ id: 'ok', label: 'Valid' }])
   })
 
   it('preserves the upstream HTTP status for BFF error handling', async () => {
@@ -235,11 +271,79 @@ describe('priority queue Sayari gateway', () => {
     }])
   })
 
+  it('accepts nullable share measurements and omits them from the mapped detail', async () => {
+    const summary = {
+      ...riskSummaryResponse,
+      data: {
+        ...riskSummaryResponse.data,
+        risk_factors: [{
+          ...riskSummaryResponse.data.risk_factors[0],
+          network_paths: [[{
+            ...riskSummaryResponse.data.risk_factors[0]!.network_paths![0]![0],
+            shares: { percentage: null, num_shares: null, monetary_value: null },
+          }]],
+        }],
+      },
+    }
+    mockDetailResponses({ data: {} }, 200, 200, summary)
+
+    const response = await getProjectEntityDetail('project-1', 'entity-1', 'test-token')
+
+    expect(response.riskFactors[0]?.networkPaths[0]?.[0]?.shares).toEqual({
+      percentage: undefined,
+      numShares: undefined,
+      monetaryValue: undefined,
+    })
+  })
+
+  it('omits null network-path shares from the mapped detail', async () => {
+    const summary = {
+      ...riskSummaryResponse,
+      data: {
+        ...riskSummaryResponse.data,
+        risk_factors: [{
+          ...riskSummaryResponse.data.risk_factors[0],
+          network_paths: [[{
+            ...riskSummaryResponse.data.risk_factors[0]!.network_paths![0]![0],
+            shares: null,
+          }]],
+        }],
+      },
+    }
+    mockDetailResponses({ data: {} }, 200, 200, summary)
+
+    const response = await getProjectEntityDetail('project-1', 'entity-1', 'test-token')
+
+    expect(response.riskFactors[0]?.networkPaths[0]?.[0]?.shares).toBeUndefined()
+  })
+
   it('treats an empty risk-change data object as no recorded changes', async () => {
     mockDetailResponses()
     const response = await getProjectEntityDetail('project-1', 'entity-1', 'test-token')
 
     expect(response.riskChanges).toEqual([])
+  })
+
+  it.each([
+    { risk_factors: [{ id: 3, label: 'Bad id', level: 'critical' }] },
+    { risk_factors: [{ id: 'factor', label: 'Bad level', level: 'unknown' }] },
+    { risk_factors: [{ id: 'factor', label: 'Factor', level: 'high', source_entity_ids: [1] }] },
+    { risk_factors: [{ id: 'factor', label: 'Factor', level: 'high', network_paths: [[{ sayari_entity_id: 'entity' }]] }] },
+  ])('rejects malformed nested risk summary fields: %j', async (data) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => new Response(
+      JSON.stringify(String(input).includes('/risk_summary') ? { data } : { data: {} }),
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getProjectEntityDetail('project-1', 'entity-1', 'test-token'))
+      .rejects.toThrow('Unexpected Sayari risk summary response.')
+  })
+
+  it('rejects malformed nested risk-change fields', async () => {
+    mockDetailResponses({ data: { risk_factors: [{ id: 'factor', timestamp: 1, change_type: 'added' }] } })
+
+    await expect(getProjectEntityDetail('project-1', 'entity-1', 'test-token'))
+      .rejects.toThrow('Unexpected Sayari risk changes response.')
   })
 
   it('maps non-empty risk changes and their cursor', async () => {
