@@ -21,9 +21,13 @@ const riskFactorOntologyResponse = {
   ],
 }
 
-function mockEntityResponse(body: object = entityResponse, status = 200) {
+function mockEntityResponse(
+  body: object = entityResponse,
+  status = 200,
+  ontology: object = riskFactorOntologyResponse,
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => new Response(
-    JSON.stringify(String(input).includes('/ontology/risk_factors') ? riskFactorOntologyResponse : body),
+    JSON.stringify(String(input).includes('/ontology/risk_factors') ? ontology : body),
     { status },
   ))
   vi.stubGlobal('fetch', fetchMock)
@@ -128,6 +132,56 @@ describe('priority queue Sayari gateway', () => {
     expect(response.entities[0]?.riskFactors).toEqual([
       { id: 'adverse_media', label: 'Adverse media' },
     ])
+  })
+
+  it('uses the identifier fallback for missing risk labels and ignores unused ontology fields', async () => {
+    mockEntityResponse(
+      {
+        ...entityResponse,
+        data: [{ ...entityResponse.data[0], risk_factors: [{ id: 'adverse_media' }] }],
+      },
+      200,
+      { data: [{ id: 'adverse_media', level: 'high', unused: { arbitrary: true } }] },
+    )
+
+    const response = await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(response.entities[0]?.riskFactors).toEqual([
+      { id: 'adverse_media', label: 'adverse media' },
+    ])
+  })
+
+  it('accepts an empty risk-factor ontology', async () => {
+    mockEntityResponse(entityResponse, 200, { data: [] })
+
+    const response = await getProjectEntities('project-1', {}, 'test-token')
+
+    expect(response.entities[0]?.riskSeverity).toBeUndefined()
+  })
+
+  it.each([
+    { data: [{ id: 'factor', level: 'unknown' }] },
+    { data: [{ id: 1, level: 'high' }] },
+    { data: [null] },
+    { data: {} },
+  ])('rejects malformed risk-factor ontology records: %j', async (ontology) => {
+    mockEntityResponse(entityResponse, 200, ontology)
+
+    await expect(getProjectEntities('project-1', {}, 'test-token')).rejects.toThrow(
+      'Unexpected Sayari risk-factor ontology response.',
+    )
+  })
+
+  it('keeps the Sayari access token in the server-side ontology request', async () => {
+    const fetchMock = mockEntityResponse()
+    await getProjectEntities('project-1', {}, 'server-only-token')
+
+    const ontologyRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes('/ontology/risk_factors'),
+    )
+    expect(new Headers(ontologyRequest?.[1]?.headers).get('Authorization')).toBe(
+      'Bearer server-only-token',
+    )
   })
 
   it('keeps each resolved Sayari match available for entity investigation', async () => {

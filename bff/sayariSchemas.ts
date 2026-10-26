@@ -15,6 +15,26 @@ export const riskLevelSchema = z.enum([
   'relevant',
 ]) satisfies z.ZodType<Sayari.RiskLevel>
 
+export const riskFactorOntologyResponseSchema = z.object({
+  data: z.array(z.unknown()),
+})
+
+export const projectRiskFactorOntologyEntrySchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  level: riskLevelSchema,
+})
+
+export const projectRiskFactorOntologyResponseSchema = riskFactorOntologyResponseSchema.extend({
+  data: z.array(projectRiskFactorOntologyEntrySchema),
+})
+
+export const entityRiskOntologyEntrySchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+})
+
 export const riskChangeFactorChangeTypeSchema = z.enum([
   'added',
   'removed',

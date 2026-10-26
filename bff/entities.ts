@@ -1,6 +1,7 @@
 import type { SayariClient } from '@sayari/sdk'
 import { SayariEnvironment, SayariError } from '@sayari/sdk'
 import { getAccessToken } from './sayari.ts'
+import { entityRiskOntologyEntrySchema, riskFactorOntologyResponseSchema } from './sayariSchemas.ts'
 import type { EntityInvestigation } from '#shared/api/entities'
 
 export type { EntityInvestigation } from '#shared/api/entities'
@@ -40,10 +41,6 @@ function displayLabel(id: string) {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-type RiskOntologyResponse = {
-  data?: { id: string; label?: string; description?: string }[]
-}
-
 const severityOrder = { critical: 4, high: 3, elevated: 2, relevant: 1 } as const
 type RiskLevel = keyof typeof severityOrder
 
@@ -60,9 +57,16 @@ async function getRiskOntology(client: SayariClient) {
     signal: AbortSignal.timeout(60_000),
   })
   if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const body = await response.json() as RiskOntologyResponse
-  if (!Array.isArray(body.data)) throw new Error('Unexpected Sayari risk-factor ontology response.')
-  return new Map(body.data.filter((risk) => typeof risk?.id === 'string').map((risk) => [risk.id, risk]))
+  const body: unknown = await response.json()
+  const ontologyResult = riskFactorOntologyResponseSchema.safeParse(body)
+  if (!ontologyResult.success) throw new Error('Unexpected Sayari risk-factor ontology response.')
+
+  return new Map(
+    ontologyResult.data.data.flatMap((risk) => {
+      const result = entityRiskOntologyEntrySchema.safeParse(risk)
+      return result.success ? [[result.data.id, result.data] as const] : []
+    }),
+  )
 }
 
 export async function getEntityInvestigation(client: SayariClient, id: string): Promise<EntityInvestigation> {

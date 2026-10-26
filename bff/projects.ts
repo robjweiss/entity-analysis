@@ -6,6 +6,7 @@ import {
   projectEntityRiskChangesSchema,
   projectEntityRiskSummarySchema,
 } from './projectSchemas.ts'
+import { projectRiskFactorOntologyResponseSchema } from './sayariSchemas.ts'
 
 export type EntityFilters = {
   name?: string
@@ -13,14 +14,6 @@ export type EntityFilters = {
   riskCategory?: string
   next?: string
   prev?: string
-}
-
-type SayariRiskFactorOntology = {
-  data?: {
-    id: string
-    label?: string
-    level: string
-  }[]
 }
 
 type RiskFactorMetadata = { label: string; level: Sayari.RiskLevel }
@@ -31,10 +24,6 @@ const riskSeverityOrder: Record<Sayari.RiskLevel, number> = {
   elevated: 2,
   relevant: 1,
 }
-function isRiskLevel(level: string): level is Sayari.RiskLevel {
-  return level in riskSeverityOrder
-}
-
 export async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
   const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
   const response = await fetch(url, {
@@ -42,16 +31,14 @@ export async function getRiskFactors(token: string): Promise<Map<string, RiskFac
     signal: AbortSignal.timeout(60_000),
   })
   if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const ontology = (await response.json()) as SayariRiskFactorOntology
-  if (!Array.isArray(ontology.data)) {
+  const body: unknown = await response.json()
+  const ontologyResult = projectRiskFactorOntologyResponseSchema.safeParse(body)
+  if (!ontologyResult.success) {
     throw new Error('Unexpected Sayari risk-factor ontology response.')
   }
 
   const riskFactors = new Map<string, RiskFactorMetadata>()
-  for (const factor of ontology.data) {
-    if (!factor || typeof factor.id !== 'string' || !isRiskLevel(factor.level)) {
-      throw new Error('Unexpected Sayari risk-factor ontology response.')
-    }
+  for (const factor of ontologyResult.data.data) {
     riskFactors.set(factor.id, {
       label: factor.label || factor.id.replace(/_/g, ' '),
       level: factor.level,
