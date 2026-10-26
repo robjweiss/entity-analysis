@@ -9,6 +9,12 @@ import {
 import { projectRiskFactorOntologyResponseSchema } from './sayariSchemas.ts'
 import { fetchUpstreamJson, UpstreamPayloadError } from './sayariRequest.ts'
 
+export type ProjectsClient = {
+  project: Pick<SayariClient['project'], 'getProjects'>
+}
+
+type ProjectCursors = Pick<Sayari.GetProjects, 'next' | 'prev'>
+
 export type EntityFilters = {
   name?: string
   country?: Sayari.Country
@@ -59,8 +65,8 @@ function maximumRiskSeverity(
 }
 
 export async function getProjects(
-  client: SayariClient,
-  cursors: { next?: string; prev?: string } = {},
+  client: ProjectsClient,
+  cursors: ProjectCursors = {},
 ): Promise<ProjectPage> {
   const response = await client.project.getProjects({ archived: false, limit: 100, ...cursors })
 

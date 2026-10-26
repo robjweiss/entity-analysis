@@ -1,6 +1,10 @@
-import type { SayariClient } from '@sayari/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getProjectEntities, getProjectEntityDetail, getProjects } from './projects.ts'
+import {
+  getProjectEntities,
+  getProjectEntityDetail,
+  getProjects,
+  type ProjectsClient,
+} from './projects.ts'
 
 const entityResponse = {
   limit: 25,
@@ -69,10 +73,14 @@ function mockDetailResponses(
 }
 
 function createClient() {
-  const getProjects = vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
-    data: [{ id: 'project-1', label: 'Supplier review' }], next: 'next-project',
+  const getProjects = vi.fn<ProjectsClient['project']['getProjects']>().mockResolvedValue({
+    limit: 100,
+    data: [{
+      id: 'project-1', label: 'Supplier review', archived: false,
+      created: '2026-01-01', updated: '2026-01-01', counts: {}, members: [],
+    }], next: 'next-project',
   })
-  const client = { project: { getProjects } } as unknown as SayariClient
+  const client = { project: { getProjects } } satisfies ProjectsClient
 
   return { client, getProjects }
 }
