@@ -35,8 +35,9 @@ const destinations = [
   { path: '/analyst', role: 'Analyst', title: 'Entity Investigation', icon: SearchCheck },
 ]
 
-const currentDestination = computed(() =>
-  destinations.find((destination) => route.path.startsWith(destination.path)) ?? destinations[0]!,
+const currentDestination = computed(
+  () =>
+    destinations.find((destination) => route.path.startsWith(destination.path)) ?? destinations[0]!,
 )
 
 function switchRole(path: string) {
