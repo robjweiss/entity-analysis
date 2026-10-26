@@ -70,17 +70,25 @@ test('keeps country codes out of the overview', async ({ page }) => {
   await expect(page.getByTestId('priority-queue-entity-entity-1')).not.toContainText(/JPN|USA/)
 })
 
-test('shows all countries in entity details', async ({ page }) => {
+test('opens entity risk details from the named button', async ({ page }) => {
   await page.goto('/management')
-  await page.getByTestId('priority-queue-entity-entity-1').click()
+  await page.getByRole('button', { name: 'Review risk details for Example supplier' }).click()
 
   await expect(page.getByRole('dialog')).toContainText('JPN, USA')
 })
 
-test('opens entity risk details from the keyboard and shows factor severity', async ({ page }) => {
+test('opens entity risk details from the named button with Enter', async ({ page }) => {
   await page.goto('/management')
-  await page.getByTestId('priority-queue-entity-entity-1').focus()
+  await page.getByRole('button', { name: 'Review risk details for Example supplier' }).focus()
   await page.keyboard.press('Enter')
+
+  await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
+})
+
+test('opens entity risk details from the named button with Space', async ({ page }) => {
+  await page.goto('/management')
+  await page.getByRole('button', { name: 'Review risk details for Example supplier' }).focus()
+  await page.keyboard.press('Space')
 
   await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
 })

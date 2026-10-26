@@ -139,7 +139,9 @@ describe('ManagementView', () => {
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="priority-queue-entity-entity-1"]').trigger('click')
+    await wrapper
+      .get('button[aria-label="Review risk details for Example supplier"]')
+      .trigger('click')
 
     expect(document.body.textContent).toContain('JPN, USA')
   })
@@ -229,7 +231,9 @@ describe('ManagementView', () => {
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="priority-queue-entity-entity-1"]').trigger('click')
+    await wrapper
+      .get('button[aria-label="Review risk details for Example supplier"]')
+      .trigger('click')
     await flushPromises()
 
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities/entity-1')
@@ -240,7 +244,9 @@ describe('ManagementView', () => {
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="priority-queue-entity-entity-1"]').trigger('click')
+    await wrapper
+      .get('button[aria-label="Review risk details for Example supplier"]')
+      .trigger('click')
     await flushPromises()
 
     expect(document.body.querySelector('[data-testid="risk-factor-level"]')?.textContent).toBe(

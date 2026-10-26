@@ -297,17 +297,17 @@ function clearFilters() {
               v-for="entity in entityPage.entities"
               :key="entity.id"
               :data-testid="`priority-queue-entity-${entity.id}`"
-              :aria-label="`Open risk details for ${entity.label}`"
-              tabindex="0"
-              class="cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring"
-              @click="selectedEntity = entity"
-              @keydown.enter.prevent="selectedEntity = entity"
-              @keydown.space.prevent="selectedEntity = entity"
             >
               <TableCell class="px-4 py-3">
-                <span class="grid gap-1">
-                  <span class="font-medium">{{ entity.label }}</span>
-                </span>
+                <Button
+                  type="button"
+                  variant="link"
+                  class="h-auto p-0 font-medium"
+                  :aria-label="`Review risk details for ${entity.label}`"
+                  @click="selectedEntity = entity"
+                >
+                  {{ entity.label }}
+                </Button>
               </TableCell>
               <TableCell class="px-4 py-3">
                 <Badge v-if="entity.riskSeverity" :variant="entity.riskSeverity">
