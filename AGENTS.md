@@ -36,6 +36,7 @@ git commit -m "refactor(bank): make the BankListItem component pure"
 
 ### Always run the following commands after the user has given approval to commit, but before committing:
 
+- `pnpm format`
 - `pnpm build`
 - `pnpm test:unit run --silent`
 - `pnpm test:e2e`
