@@ -103,6 +103,12 @@ describe('project risk changes', () => {
     })
   })
 
+  it('normalizes a nullable project-wide changes cursor to no next page', async () => {
+    stubResponses([{ data: {}, next: null }])
+
+    expect((await getProjectRiskChanges('project-1', 'token', now)).next).toBeUndefined()
+  })
+
   it('excludes factors outside the precise seven-day window even when Sayari includes their calendar day', async () => {
     stubResponses([{ data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [
       { id: 'old', timestamp: '2026-10-18T11:59:59Z', change_type: 'added' },
@@ -213,6 +219,9 @@ describe('project risk changes', () => {
 
   it.each([{ data: null }, { data: { risk_changes: 'invalid' } },
     { data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [{ id: 'pep', timestamp: 'invalid', change_type: 'added' }] }] } },
+    { data: { risk_changes: [{ project_entity_id: 1, risk_factors: [] }] } },
+    { data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [{ id: 'pep', timestamp: '2026-10-24', change_type: 'unknown' }] }] } },
+    { data: { risk_changes: [{ project_entity_id: 'one', risk_factors: [{ id: 'pep', timestamp: '2026-10-24', change_type: 'added' }] }] }, next: 4 },
   ])('rejects malformed changes instead of silently showing an empty state', async (body) => {
     stubResponses([body])
 

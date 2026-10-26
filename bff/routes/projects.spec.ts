@@ -226,6 +226,34 @@ describe('project routes', () => {
     expect(response.status).toBe(502)
   })
 
+  it('returns a client-safe 502 for malformed nested project entity data', async () => {
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).startsWith('https://api.sayari.com/')
+        ? Promise.resolve(new Response(JSON.stringify({
+            data: [{
+              project_entity_id: 'entity-1',
+              label: 'Example entity',
+              countries: [1],
+              risk_categories: [],
+              risk_factors: [],
+            }],
+          })))
+        : nativeFetch(input, init),
+    )
+
+    const response = await requestApp('/api/projects/abc/entities')
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 502,
+      body: {
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: 'Unable to load project entities. Please try again shortly.',
+        },
+      },
+    })
+  })
+
   it('maps entity-list rate limits to a retryable BFF error', async () => {
     stubEntityApi(429)
     const response = await requestApp('/api/projects/abc/entities')

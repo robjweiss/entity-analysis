@@ -1,6 +1,12 @@
 import { SayariEnvironment, SayariError, type SayariClient } from '@sayari/sdk'
 import type { Sayari } from '@sayari/sdk'
 import type { EntityDetail, EntityPage, ProjectPage } from '#shared/api/projects'
+import {
+  projectEntityListSchema,
+  projectEntityRiskChangesSchema,
+  projectEntityRiskSummarySchema,
+} from './projectSchemas.ts'
+import { projectRiskFactorOntologyResponseSchema } from './sayariSchemas.ts'
 
 export type EntityFilters = {
   name?: string
@@ -8,65 +14,6 @@ export type EntityFilters = {
   riskCategory?: string
   next?: string
   prev?: string
-}
-
-type SayariEntityPage = {
-  data: {
-    project_entity_id: string
-    label: string
-    countries: string[]
-    risk_categories: { id: string; label: string }[]
-    risk_factors: { id: string }[]
-    matches?: { sayari_entity_id: string; label: string }[]
-  }[]
-  next?: string
-  prev?: string
-}
-
-type SayariEntityRiskSummary = {
-  data?: {
-    risk_factors?: {
-      id: string
-      label: string
-      level: Sayari.RiskLevel
-      risk_categories?: { id: string; label: string }[]
-      source_entity_ids?: string[]
-      network_paths?: {
-        sayari_entity_id: string
-        sayari_entity_label: string
-        relationship_type: string
-        relationship_status?: string
-        former?: boolean
-        first_observed?: string
-        last_observed?: string
-        start_date?: string
-        shares?: {
-          percentage?: number | null
-          num_shares?: number | null
-          monetary_value?: number | null
-        }
-      }[][]
-    }[]
-  }
-}
-
-type SayariEntityRiskChanges = {
-  data?: {
-    risk_factors?: {
-      id: string
-      timestamp: string
-      change_type: Sayari.RiskChangeFactorChangeType
-    }[]
-  }
-  next?: string | null
-}
-
-type SayariRiskFactorOntology = {
-  data?: {
-    id: string
-    label?: string
-    level: string
-  }[]
 }
 
 type RiskFactorMetadata = { label: string; level: Sayari.RiskLevel }
@@ -77,10 +24,6 @@ const riskSeverityOrder: Record<Sayari.RiskLevel, number> = {
   elevated: 2,
   relevant: 1,
 }
-function isRiskLevel(level: string): level is Sayari.RiskLevel {
-  return level in riskSeverityOrder
-}
-
 export async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
   const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
   const response = await fetch(url, {
@@ -88,16 +31,14 @@ export async function getRiskFactors(token: string): Promise<Map<string, RiskFac
     signal: AbortSignal.timeout(60_000),
   })
   if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const ontology = (await response.json()) as SayariRiskFactorOntology
-  if (!Array.isArray(ontology.data)) {
+  const body: unknown = await response.json()
+  const ontologyResult = projectRiskFactorOntologyResponseSchema.safeParse(body)
+  if (!ontologyResult.success) {
     throw new Error('Unexpected Sayari risk-factor ontology response.')
   }
 
   const riskFactors = new Map<string, RiskFactorMetadata>()
-  for (const factor of ontology.data) {
-    if (!factor || typeof factor.id !== 'string' || !isRiskLevel(factor.level)) {
-      throw new Error('Unexpected Sayari risk-factor ontology response.')
-    }
+  for (const factor of ontologyResult.data.data) {
     riskFactors.set(factor.id, {
       label: factor.label || factor.id.replace(/_/g, ' '),
       level: factor.level,
@@ -157,8 +98,10 @@ export async function getProjectEntities(
     signal: AbortSignal.timeout(60_000),
   })
   if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const page = (await response.json()) as SayariEntityPage
-  if (!Array.isArray(page?.data)) throw new Error('Unexpected Sayari entity response.')
+  const body: unknown = await response.json()
+  const pageResult = projectEntityListSchema.safeParse(body)
+  if (!pageResult.success) throw new Error('Unexpected Sayari entity response.')
+  const page = pageResult.data
   const riskFactorOntology = await getRiskFactors(token)
 
   return {
@@ -174,18 +117,25 @@ export async function getProjectEntities(
         })),
         riskSeverity: maximumRiskSeverity(entity.risk_factors, riskFactorOntology),
       }
-      const matches = (entity.matches ?? []).filter(
+      const matches = (Array.isArray(entity.matches) ? entity.matches : []).filter(
         (match): match is { sayari_entity_id: string; label: string } =>
-          typeof match?.sayari_entity_id === 'string' && typeof match.label === 'string',
+          typeof match === 'object' &&
+          match !== null &&
+          !Array.isArray(match) &&
+          typeof match.sayari_entity_id === 'string' &&
+          typeof match.label === 'string',
       )
       if (matches.length) {
-        mappedEntity.matches = matches.map((match) => ({ id: match.sayari_entity_id, label: match.label }))
+        mappedEntity.matches = matches.map((match) => ({
+          id: match.sayari_entity_id,
+          label: match.label,
+        }))
       }
 
       return mappedEntity
     }),
-    next: page.next,
-    prev: page.prev,
+    next: page.next ?? undefined,
+    prev: page.prev ?? undefined,
   }
 }
 
@@ -196,14 +146,15 @@ export async function getProjectEntityDetail(
 ): Promise<EntityDetail> {
   // SDK 0.1.44 rejects live responses here (boolean factor values, incomplete
   // network paths, and empty risk-change data). Parse only the fields we use.
-  const fetchEndpoint = async <T>(endpoint: string, url: URL): Promise<T> => {
+  const fetchEndpoint = async (endpoint: string, url: URL): Promise<unknown> => {
     try {
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(60_000),
       })
       if (!response.ok) throw new SayariError({ statusCode: response.status })
-      return (await response.json()) as T
+      const body: unknown = await response.json()
+      return body
     } catch (error) {
       console.error(`Sayari project entity ${endpoint} request failed`, {
         errorType: error instanceof Error ? error.constructor.name : typeof error,
@@ -224,10 +175,16 @@ export async function getProjectEntityDetail(
   )
   changesUrl.searchParams.set('limit', '100')
 
-  const [summary, changes] = await Promise.all([
-    fetchEndpoint<SayariEntityRiskSummary>('risk_summary', summaryUrl),
-    fetchEndpoint<SayariEntityRiskChanges>('risk_changes', changesUrl),
+  const [summaryBody, changesBody] = await Promise.all([
+    fetchEndpoint('risk_summary', summaryUrl),
+    fetchEndpoint('risk_changes', changesUrl),
   ])
+  const summaryResult = projectEntityRiskSummarySchema.safeParse(summaryBody)
+  if (!summaryResult.success) throw new Error('Unexpected Sayari risk summary response.')
+  const changesResult = projectEntityRiskChangesSchema.safeParse(changesBody)
+  if (!changesResult.success) throw new Error('Unexpected Sayari risk changes response.')
+  const summary = summaryResult.data
+  const changes = changesResult.data
 
   const riskFactors = summary.data?.risk_factors
   if (!Array.isArray(riskFactors)) throw new Error('Unexpected Sayari risk summary response.')
@@ -249,11 +206,11 @@ export async function getProjectEntityDetail(
           firstObserved: entity.first_observed,
           lastObserved: entity.last_observed,
           startDate: entity.start_date,
-          shares: entity.shares && {
+          shares: entity.shares ? {
             percentage: entity.shares.percentage ?? undefined,
             numShares: entity.shares.num_shares ?? undefined,
             monetaryValue: entity.shares.monetary_value ?? undefined,
-          },
+          } : undefined,
         })),
       ),
     })),

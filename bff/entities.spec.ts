@@ -81,6 +81,95 @@ describe('entity investigation Sayari gateway', () => {
     ])
   })
 
+  it('uses risk identifier fallbacks when optional ontology text is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: [{ id: 'sanctioned', unused: { arbitrary: true } }] }),
+        ),
+      ),
+    )
+    const { client } = createClient()
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.risks).toEqual([
+      { id: 'sanctioned', label: 'Sanctioned', description: undefined, level: 'critical' },
+      { id: 'cpi_score', label: 'Cpi Score', description: undefined, level: 'relevant' },
+    ])
+  })
+
+  it('filters ontology records without string identifiers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [null, { label: 'Missing identifier' }, { id: 4 }] })),
+      ),
+    )
+    const { client } = createClient()
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.risks[0]?.label).toBe('Sanctioned')
+  })
+
+  it('accepts an empty risk ontology', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }))))
+    const { client } = createClient()
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(result.risks[0]?.label).toBe('Sanctioned')
+  })
+
+  it('rejects malformed nested risk ontology data', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { id: 'sanctioned' } }))),
+    )
+    const { client } = createClient()
+
+    await expect(getEntityInvestigation(client, 'entity-1')).rejects.toThrow(
+      'Unexpected Sayari risk-factor ontology response.',
+    )
+  })
+
+  it('sends the access token only in the server-side ontology request', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ data: [] })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { client } = createClient()
+
+    await getEntityInvestigation(client, 'entity-1')
+
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization')).toBe(
+      'Bearer test-token',
+    )
+  })
+
+  it('keeps credentials out of the investigation response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }))))
+    const { client } = createClient()
+
+    const result = await getEntityInvestigation(client, 'entity-1')
+
+    expect(JSON.stringify(result)).not.toContain('test-token')
+  })
+
+  it('uses credentials server-side to retrieve the access token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }))))
+    const { client } = createClient()
+
+    await getEntityInvestigation(client, 'entity-1')
+
+    expect(client.auth.getToken).toHaveBeenCalledWith({
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+    })
+  })
+
   it('maps relationship and record previews with their pagination state', async () => {
     const { client } = createClient()
 
