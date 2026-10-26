@@ -44,6 +44,12 @@ test.describe('Management with Sony fixture data', () => {
           response = sonyFixture.entities.byName
         } else if (url.searchParams.has('country')) {
           response = sonyFixture.entities.byCountry
+        } else if (url.searchParams.has('riskCategory')) {
+          response = {
+            entities: sonyFixture.entities.initial.entities.filter((entity) =>
+              entity.riskCategories.some(({ id }) => id === url.searchParams.get('riskCategory')),
+            ),
+          }
         }
 
         await route.fulfill({ json: response })
@@ -103,6 +109,52 @@ test.describe('Management with Sony fixture data', () => {
     expect(entityRequests.at(-1)?.searchParams.get('country')).toBe('JPN')
     expect(entityRequests.at(-1)?.searchParams.has('name')).toBe(false)
   })
+
+  test('filters entities by risk category and clears applied filters', async ({ page }) => {
+    await page.goto('/management')
+    await page.getByTestId('priority-queue-category-filter').fill('sanctions')
+    await page.getByRole('button', { name: 'Apply filters' }).click()
+
+    const filtered = sonyFixture.entities.initial.entities.filter((entity) =>
+      entity.riskCategories.some(({ id }) => id === 'sanctions'),
+    )
+    await expectEntityLabels(page, filtered.map(({ label }) => label))
+    expect(entityRequests.at(-1)?.searchParams.get('riskCategory')).toBe('sanctions')
+
+    await page.getByRole('button', { name: 'Clear filters' }).click()
+    await expect(page.getByTestId('priority-queue-category-filter')).toHaveValue('')
+    await expectEntityLabels(
+      page,
+      sonyFixture.entities.initial.entities.map(({ label }) => label),
+    )
+    expect(entityRequests.at(-1)?.search).toBe('')
+  })
+
+  test('paginates entities using next and previous cursors', async ({ page }) => {
+    const first = sonyFixture.entities.initial.entities[0]!
+    const second = sonyFixture.entities.initial.entities[1]!
+    await page.route(/\/api\/projects\/[^/]+\/entities(?:\?.*)?$/, async (route) => {
+      const url = new URL(route.request().url())
+      entityRequests.push(url)
+      if (url.searchParams.has('next')) {
+        await route.fulfill({ json: { entities: [second], prev: 'first-cursor' } })
+      } else if (url.searchParams.has('prev')) {
+        await route.fulfill({ json: { entities: [first], next: 'second-cursor' } })
+      } else {
+        await route.fulfill({ json: { entities: [first], next: 'second-cursor' } })
+      }
+    })
+
+    await page.goto('/management')
+    await expectEntityLabels(page, [first.label])
+    await page.getByRole('button', { name: 'Next entities' }).click()
+    await expectEntityLabels(page, [second.label])
+    expect(entityRequests.at(-1)?.searchParams.get('next')).toBe('second-cursor')
+
+    await page.getByRole('button', { name: 'Previous entities' }).click()
+    await expectEntityLabels(page, [first.label])
+    expect(entityRequests.at(-1)?.searchParams.get('prev')).toBe('first-cursor')
+  })
 })
 
 test.describe('Management entity risk details', () => {
@@ -132,6 +184,9 @@ test.describe('Management entity risk details', () => {
     await page.getByRole('button', { name: 'Review risk details for Synthetic supplier' }).click()
 
     await expect(page.getByRole('dialog')).toContainText('JPN, USA')
+    await expect(page.getByRole('dialog')).toContainText('Sanctioned')
+    await expect(page.getByRole('dialog')).toContainText('Critical')
+    await expect(page.getByRole('dialog')).toContainText('2026-10-20')
   })
 
   test('opens entity risk details with Enter', async ({ page }) => {
