@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Search } from '@lucide/vue'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { NativeSelect } from '@/components/ui/native-select'
 import {
   Sheet,
   SheetContent,
@@ -10,6 +15,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import type { EntityDetail, EntityPage, ProjectPage } from '@shared/api/projects'
 
 type Cursor = { next?: string; prev?: string }
@@ -169,84 +183,85 @@ function clearFilters() {
       </p>
     </div>
 
-    <div class="grid gap-3 rounded-lg border bg-card p-4">
-      <label class="grid gap-1.5 text-sm font-medium">
-        Project
-        <select
-          v-model="selectedProjectId"
-          data-testid="priority-queue-project"
-          :disabled="projectLoading || !projectPage?.projects.length"
-          class="h-8 rounded-lg border bg-background px-2 text-sm"
-        >
-          <option v-for="project in projectPage?.projects" :key="project.id" :value="project.id">
-            {{ project.label }}
-          </option>
-        </select>
-      </label>
-      <p v-if="projectLoading" role="status">Loading projects…</p>
-      <p v-else-if="projectError" role="alert">{{ projectError }}</p>
-      <p v-else-if="!projectPage?.projects.length" class="text-sm text-muted-foreground">
-        No projects available on this page.
-      </p>
-      <div v-if="projectPage?.next || projectPage?.prev" class="flex gap-3">
-        <button
-          type="button"
-          :disabled="!projectPage.prev"
-          @click="projectCursor = { prev: projectPage.prev }"
-        >
-          Previous projects
-        </button>
-        <button
-          type="button"
-          :disabled="!projectPage.next"
-          @click="projectCursor = { next: projectPage.next }"
-        >
-          Next projects
-        </button>
-      </div>
-
-      <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters">
-        <label class="grid gap-1.5 text-sm font-medium sm:col-span-3">
-          Search entity name
-          <div class="relative">
-            <Search
-              class="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground"
-            />
-            <Input v-model="name" data-testid="priority-queue-search" class="pl-8" />
-          </div>
-        </label>
+    <Card class="gap-0 py-0">
+      <CardContent class="grid gap-3 py-4">
         <label class="grid gap-1.5 text-sm font-medium">
-          Country (3-letter code)
-          <Input
-            v-model="country"
-            data-testid="priority-queue-country-filter"
-            placeholder="JPN"
-            maxlength="3"
-          />
-        </label>
-        <label class="grid gap-1.5 text-sm font-medium">
-          Risk category ID
-          <Input
-            v-model="riskCategory"
-            data-testid="priority-queue-category-filter"
-            placeholder="sanctions"
-          />
-        </label>
-        <div class="flex items-end gap-3">
-          <button type="submit" class="h-8 text-sm font-medium">Apply filters</button>
-          <button
-            type="button"
-            class="h-8 text-sm font-medium text-muted-foreground hover:text-foreground"
-            @click="clearFilters"
+          Project
+          <NativeSelect
+            v-model="selectedProjectId"
+            data-testid="priority-queue-project"
+            :disabled="projectLoading || !projectPage?.projects.length"
           >
-            Clear filters
-          </button>
+            <option v-for="project in projectPage?.projects" :key="project.id" :value="project.id">
+              {{ project.label }}
+            </option>
+          </NativeSelect>
+        </label>
+        <p v-if="projectLoading" role="status">Loading projects…</p>
+        <Alert v-else-if="projectError" variant="destructive">
+          <AlertDescription>{{ projectError }}</AlertDescription>
+        </Alert>
+        <p v-else-if="!projectPage?.projects.length" class="text-sm text-muted-foreground">
+          No projects available on this page.
+        </p>
+        <div v-if="projectPage?.next || projectPage?.prev" class="flex gap-3">
+          <Button
+            type="button"
+            size="sm"
+            :disabled="!projectPage.prev"
+            @click="projectCursor = { prev: projectPage.prev }"
+          >
+            Previous projects
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            :disabled="!projectPage.next"
+            @click="projectCursor = { next: projectPage.next }"
+          >
+            Next projects
+          </Button>
         </div>
-      </form>
-    </div>
 
-    <div class="overflow-hidden rounded-lg border bg-card">
-      <div class="flex items-center justify-between border-b px-4 py-3">
+        <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters">
+          <label class="grid gap-1.5 text-sm font-medium sm:col-span-3">
+            Search entity name
+            <InputGroup>
+              <InputGroupAddon>
+                <Search class="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput v-model="name" data-testid="priority-queue-search" />
+            </InputGroup>
+          </label>
+          <label class="grid gap-1.5 text-sm font-medium">
+            Country (3-letter code)
+            <Input
+              v-model="country"
+              data-testid="priority-queue-country-filter"
+              placeholder="JPN"
+              maxlength="3"
+            />
+          </label>
+          <label class="grid gap-1.5 text-sm font-medium">
+            Risk category ID
+            <Input
+              v-model="riskCategory"
+              data-testid="priority-queue-category-filter"
+              placeholder="sanctions"
+            />
+          </label>
+          <div class="flex items-end gap-3">
+            <Button type="submit" size="sm">Apply filters</Button>
+            <Button type="button" size="sm" variant="ghost" @click="clearFilters">
+              Clear filters
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+
+    <Card class="gap-0 py-0">
+      <CardHeader class="flex items-center justify-between border-b py-3">
         <h2 class="font-medium">Entities requiring review</h2>
         <p
           v-if="entityPage"
@@ -255,27 +270,30 @@ function clearFilters() {
         >
           {{ pageCountLabel }}
         </p>
-      </div>
-      <p v-if="entityLoading" role="status" class="px-4 py-12 text-center">Loading entities…</p>
-      <p v-else-if="entityError" role="alert" class="px-4 py-12 text-center">{{ entityError }}</p>
-      <p
-        v-else-if="entityPage && !entityPage.entities.length"
-        class="px-4 py-12 text-center text-sm text-muted-foreground"
-      >
-        No entities match these filters.
-      </p>
-      <div v-else-if="entityPage" class="overflow-x-auto">
-        <table aria-label="Priority queue entities" class="w-full min-w-[44rem] text-left text-sm">
-          <thead class="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th scope="col" class="px-4 py-3 font-medium">Entity</th>
-              <th scope="col" class="px-4 py-3 font-medium">Risk severity</th>
-              <th scope="col" class="px-4 py-3 font-medium">Risk categories</th>
-              <th scope="col" class="px-4 py-3 font-medium">Risk factors</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y">
-            <tr
+      </CardHeader>
+      <CardContent class="p-0">
+        <p v-if="entityLoading" role="status" class="px-4 py-12 text-center">Loading entities…</p>
+        <Alert v-else-if="entityError" variant="destructive" class="m-4">
+          <AlertDescription>{{ entityError }}</AlertDescription>
+        </Alert>
+        <p
+          v-else-if="entityPage && !entityPage.entities.length"
+          class="px-4 py-12 text-center text-sm text-muted-foreground"
+        >
+          No entities match these filters.
+        </p>
+        <Table v-else-if="entityPage" class="min-w-[44rem] text-left">
+          <TableCaption class="sr-only">Priority queue entities</TableCaption>
+          <TableHeader class="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+            <TableRow>
+              <TableHead scope="col" class="px-4 py-3">Entity</TableHead>
+              <TableHead scope="col" class="px-4 py-3">Risk severity</TableHead>
+              <TableHead scope="col" class="px-4 py-3">Risk categories</TableHead>
+              <TableHead scope="col" class="px-4 py-3">Risk factors</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
               v-for="entity in entityPage.entities"
               :key="entity.id"
               :data-testid="`priority-queue-entity-${entity.id}`"
@@ -286,21 +304,18 @@ function clearFilters() {
               @keydown.enter.prevent="selectedEntity = entity"
               @keydown.space.prevent="selectedEntity = entity"
             >
-              <td class="px-4 py-3">
+              <TableCell class="px-4 py-3">
                 <span class="grid gap-1">
                   <span class="font-medium">{{ entity.label }}</span>
                 </span>
-              </td>
-              <td class="px-4 py-3">
-                <Badge
-                  v-if="entity.riskSeverity"
-                  :variant="entity.riskSeverity"
-                >
+              </TableCell>
+              <TableCell class="px-4 py-3">
+                <Badge v-if="entity.riskSeverity" :variant="entity.riskSeverity">
                   {{ riskSeverityLabels[entity.riskSeverity] }}
                 </Badge>
                 <span v-else class="text-muted-foreground">—</span>
-              </td>
-              <td class="px-4 py-3">
+              </TableCell>
+              <TableCell class="px-4 py-3">
                 <span class="flex flex-wrap gap-1.5">
                   <Badge
                     v-for="category in entity.riskCategories"
@@ -310,8 +325,8 @@ function clearFilters() {
                     {{ category.label }}
                   </Badge>
                 </span>
-              </td>
-              <td class="px-4 py-3" data-testid="priority-queue-risk-factors">
+              </TableCell>
+              <TableCell class="px-4 py-3" data-testid="priority-queue-risk-factors">
                 <span v-if="entity.riskFactors.length" class="flex flex-wrap gap-1.5">
                   <Badge
                     v-for="factor in entity.riskFactors.slice(0, 2)"
@@ -325,31 +340,30 @@ function clearFilters() {
                   </span>
                 </span>
                 <span v-else class="text-muted-foreground">—</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div
-        v-if="entityPage?.next || entityPage?.prev"
-        class="flex justify-end gap-3 border-t px-4 py-3"
-      >
-        <button
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+      <CardFooter v-if="entityPage?.next || entityPage?.prev" class="justify-end gap-3 py-3">
+        <Button
           type="button"
+          size="sm"
           :disabled="!entityPage.prev"
           @click="entityCursor = { prev: entityPage.prev }"
         >
           Previous entities
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           :disabled="!entityPage.next"
           @click="entityCursor = { next: entityPage.next }"
         >
           Next entities
-        </button>
-      </div>
-    </div>
+        </Button>
+      </CardFooter>
+    </Card>
   </section>
 
   <Sheet
@@ -363,7 +377,9 @@ function clearFilters() {
       </SheetHeader>
       <div v-if="selectedEntity" class="grid gap-6 px-4 pb-6">
         <p v-if="detailLoading" role="status">Loading risk details…</p>
-        <p v-else-if="detailError" role="alert">{{ detailError }}</p>
+        <Alert v-else-if="detailError" variant="destructive">
+          <AlertDescription>{{ detailError }}</AlertDescription>
+        </Alert>
         <template v-else-if="entityDetail">
           <div class="grid gap-2">
             <h2 class="text-sm font-medium">Risk factors</h2>
@@ -378,11 +394,7 @@ function clearFilters() {
               >
                 <div class="flex items-start justify-between gap-3">
                   <span>{{ factor.label }}</span>
-                  <Badge
-                    data-testid="risk-factor-level"
-                    :variant="factor.level"
-                    class="shrink-0"
-                  >
+                  <Badge data-testid="risk-factor-level" :variant="factor.level" class="shrink-0">
                     {{ riskSeverityLabels[factor.level] }}
                   </Badge>
                 </div>

@@ -52,12 +52,43 @@ describe('ManagementView', () => {
     expect(wrapper.get('[data-testid="priority-queue-count"]').text()).toBe('1 entity on this page')
   })
 
+  it('keeps the project selector as a native select control', async () => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-project"]').element.tagName).toBe('SELECT')
+  })
+
+  it('names the priority queue table with a caption', async () => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('table caption').text()).toBe('Priority queue entities')
+  })
+
+  it.each([
+    { name: 'entity', text: 'Entity' },
+    { name: 'risk severity', text: 'Risk severity' },
+    { name: 'risk categories', text: 'Risk categories' },
+    { name: 'risk factors', text: 'Risk factors' },
+  ])('scopes the $name table header to its column', async ({ text }) => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.findAll('th[scope="col"]').some((header) => header.text() === text)).toBe(true)
+  })
+
   it('renders the entity maximum risk severity', async () => {
     mockApi()
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).toContain('Critical')
+    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).toContain(
+      'Critical',
+    )
   })
 
   it('renders human-readable risk factors in the entity list', async () => {
@@ -72,14 +103,16 @@ describe('ManagementView', () => {
 
   it('summarizes risk factors beyond the first two', async () => {
     mockApi({
-      entities: [{
-        ...entity,
-        riskFactors: [
-          { id: 'sanctioned', label: 'Sanctioned' },
-          { id: 'export_controls', label: 'Export controls' },
-          { id: 'forced_labor', label: 'Forced labor' },
-        ],
-      }],
+      entities: [
+        {
+          ...entity,
+          riskFactors: [
+            { id: 'sanctioned', label: 'Sanctioned' },
+            { id: 'export_controls', label: 'Export controls' },
+            { id: 'forced_labor', label: 'Forced labor' },
+          ],
+        },
+      ],
     })
     const wrapper = mount(ManagementView)
     await flushPromises()
@@ -94,7 +127,9 @@ describe('ManagementView', () => {
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).not.toMatch(/JPN|USA/)
+    expect(wrapper.get('[data-testid="priority-queue-entity-entity-1"]').text()).not.toMatch(
+      /JPN|USA/,
+    )
   })
 
   it('keeps all country codes in the entity detail sheet', async () => {
