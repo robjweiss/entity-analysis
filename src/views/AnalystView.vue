@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/native-select'
+import { getEntityInvestigation, getEntityRecords, getEntityRelationships } from '@/api/entities'
+import { listProjectEntities, listProjects } from '@/api/projects'
 import type { EntityInvestigation } from '@shared/api/entities'
 import type { EntityPage, ProjectPage } from '@shared/api/projects'
 
@@ -45,26 +47,6 @@ const profileFacts = computed(() => {
   ].filter((fact): fact is { label: string; value: string } => Boolean(fact.value))
 })
 
-async function request<T>(url: string, signal: AbortSignal) {
-  const response = await fetch(url, { signal })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error?.message ?? 'Unable to load data. Please try again.')
-  }
-  return response.json() as Promise<T>
-}
-
-async function requestInvestigation(id: string, signal: AbortSignal) {
-  const response = await fetch(`/api/entities/${encodeURIComponent(id)}`, { signal })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(
-      body?.error?.message ?? 'Unable to load entity investigation. Please try again.',
-    )
-  }
-  return response.json() as Promise<EntityInvestigation>
-}
-
 watch(
   projectId,
   async (id, _old, onCleanup) => {
@@ -78,10 +60,7 @@ watch(
     onCleanup(() => controller.abort())
     entityLoading.value = true
     try {
-      projectEntities.value = await request<EntityPage>(
-        `/api/projects/${encodeURIComponent(id)}/entities`,
-        controller.signal,
-      )
+      projectEntities.value = await listProjectEntities(id, {}, { signal: controller.signal })
     } catch (requestError) {
       if (!controller.signal.aborted) error.value = (requestError as Error).message
     } finally {
@@ -109,7 +88,7 @@ watch(
     onCleanup(() => controller.abort())
     loading.value = true
     try {
-      investigation.value = await requestInvestigation(id, controller.signal)
+      investigation.value = await getEntityInvestigation(id, { signal: controller.signal })
     } catch (requestError) {
       if (!controller.signal.aborted) error.value = (requestError as Error).message
     } finally {
@@ -127,12 +106,9 @@ async function loadMoreRelationships() {
   relationshipsLoading.value = true
   relationshipsError.value = ''
   try {
-    const page = await request<
-      Pick<EntityInvestigation, 'relationships' | 'relationshipCount' | 'nextRelationship'>
-    >(
-      `/api/entities/${encodeURIComponent(current.profile.id)}/relationships?${new URLSearchParams({ next: cursor })}`,
-      new AbortController().signal,
-    )
+    const page = await getEntityRelationships(current.profile.id, cursor, {
+      signal: new AbortController().signal,
+    })
     current.relationships.push(...page.relationships)
     current.relationshipCount = page.relationshipCount
     current.nextRelationship = page.nextRelationship
@@ -151,10 +127,9 @@ async function loadMoreRecords() {
   recordsLoading.value = true
   recordsError.value = ''
   try {
-    const page = await request<Pick<EntityInvestigation, 'records' | 'recordCount' | 'nextRecord'>>(
-      `/api/entities/${encodeURIComponent(current.profile.id)}/records?${new URLSearchParams({ next: cursor })}`,
-      new AbortController().signal,
-    )
+    const page = await getEntityRecords(current.profile.id, cursor, {
+      signal: new AbortController().signal,
+    })
     current.records.push(...page.records)
     current.recordCount = page.recordCount
     current.nextRecord = page.nextRecord
@@ -178,7 +153,7 @@ async function loadProjects() {
   projectLoading.value = true
   error.value = ''
   try {
-    projects.value = await request<ProjectPage>('/api/projects', controller.signal)
+    projects.value = await listProjects({}, { signal: controller.signal })
   } catch (requestError) {
     error.value = (requestError as Error).message
   } finally {

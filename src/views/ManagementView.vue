@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { getProjectEntityDetail, listProjectEntities, listProjects } from '@/api/projects'
 import type { EntityDetail, EntityPage, ProjectPage } from '@shared/api/projects'
 
 type Cursor = { next?: string; prev?: string }
@@ -62,23 +63,6 @@ const pageCountLabel = computed(() => {
   return `${count} ${count === 1 ? 'entity' : 'entities'} on this page`
 })
 
-function queryString(params: Record<string, string | undefined>) {
-  const query = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value) query.set(key, value)
-  }
-  return query.size ? `?${query}` : ''
-}
-
-async function request<T>(url: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error?.message ?? 'Unable to load data. Please try again.')
-  }
-  return response.json() as Promise<T>
-}
-
 watch(
   projectCursor,
   async (cursor, _old, onCleanup) => {
@@ -89,10 +73,7 @@ watch(
     projectPage.value = undefined
     selectedProjectId.value = ''
     try {
-      const page = await request<ProjectPage>(
-        `/api/projects${queryString(cursor)}`,
-        controller.signal,
-      )
+      const page = await listProjects(cursor, { signal: controller.signal })
       if (controller.signal.aborted) return
       projectPage.value = page
       selectedProjectId.value = page.projects[0]?.id ?? ''
@@ -122,9 +103,12 @@ watch(
       return
     }
     entityLoading.value = true
-    const url = `/api/projects/${encodeURIComponent(selectedProjectId.value)}/entities${queryString({ ...filters.value, ...entityCursor.value })}`
     try {
-      const page = await request<EntityPage>(url, controller.signal)
+      const page = await listProjectEntities(
+        selectedProjectId.value,
+        { ...filters.value, ...entityCursor.value },
+        { signal: controller.signal },
+      )
       if (!controller.signal.aborted) entityPage.value = page
     } catch (error) {
       if (!controller.signal.aborted) entityError.value = (error as Error).message
@@ -146,10 +130,9 @@ watch(selectedEntity, async (entity, _old, onCleanup) => {
   }
   detailLoading.value = true
   try {
-    const detail = await request<EntityDetail>(
-      `/api/projects/${encodeURIComponent(selectedProjectId.value)}/entities/${encodeURIComponent(entity.id)}`,
-      controller.signal,
-    )
+    const detail = await getProjectEntityDetail(selectedProjectId.value, entity.id, {
+      signal: controller.signal,
+    })
     if (!controller.signal.aborted) entityDetail.value = detail
   } catch (error) {
     if (!controller.signal.aborted) detailError.value = (error as Error).message

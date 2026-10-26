@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Progress } from '@/components/ui/progress'
+import { getProjectExposure, getProjectRiskChanges, listProjects } from '@/api/projects'
 import type { ProjectExposure, ProjectPage, ProjectRiskChanges } from '@shared/api/projects'
 
 type ProjectPagination = { next?: string; prev?: string }
@@ -87,15 +88,6 @@ function dateLabel(timestamp: string) {
   }).format(new Date(timestamp))
 }
 
-async function request<T>(url: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error?.message ?? 'Unable to load data. Please try again.')
-  }
-  return response.json() as Promise<T>
-}
-
 async function showMore() {
   const current = changes.value
   if (!current || moreLoading.value) return
@@ -110,11 +102,11 @@ async function showMore() {
 
   moreLoading.value = true
   const controller = activeController
-  const query = new URLSearchParams({ next: current.next, asOf: current.to })
   try {
-    const page = await request<ProjectRiskChanges>(
-      `/api/projects/${encodeURIComponent(selectedProjectId.value)}/risk-changes?${query}`,
-      controller.signal,
+    const page = await getProjectRiskChanges(
+      selectedProjectId.value,
+      { next: current.next, asOf: current.to },
+      { signal: controller.signal },
     )
     if (controller.signal.aborted) return
     changes.value = { ...page, changes: [...current.changes, ...page.changes] }
@@ -138,12 +130,7 @@ watch(
     projectPage.value = undefined
     selectedProjectId.value = ''
     try {
-      const query = pagination.next
-        ? `?next=${encodeURIComponent(pagination.next)}`
-        : pagination.prev
-          ? `?prev=${encodeURIComponent(pagination.prev)}`
-          : ''
-      const page = await request<ProjectPage>(`/api/projects${query}`, controller.signal)
+      const page = await listProjects(pagination, { signal: controller.signal })
       if (controller.signal.aborted) return
       projectPage.value = page
       selectedProjectId.value = page.projects[0]?.id ?? ''
@@ -171,8 +158,7 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
   changesLoading.value = Boolean(projectId)
   if (!projectId) return
 
-  const base = `/api/projects/${encodeURIComponent(projectId)}`
-  void request<ProjectExposure>(`${base}/exposure`, controller.signal)
+  void getProjectExposure(projectId, { signal: controller.signal })
     .then((result) => {
       if (!controller.signal.aborted) exposure.value = result
     })
@@ -183,7 +169,7 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
       if (!controller.signal.aborted) exposureLoading.value = false
     })
 
-  void request<ProjectRiskChanges>(`${base}/risk-changes`, controller.signal)
+  void getProjectRiskChanges(projectId, {}, { signal: controller.signal })
     .then((result) => {
       if (!controller.signal.aborted) changes.value = result
     })
