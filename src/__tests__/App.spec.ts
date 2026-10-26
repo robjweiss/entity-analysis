@@ -7,7 +7,7 @@ import router from '../router'
 describe('App', () => {
   it.each([
     { path: '/executive', title: 'Exposure Snapshot' },
-    { path: '/management', title: 'Priority Queue' },
+    { path: '/management', title: 'Risk Breakdown' },
     { path: '/analyst', title: 'Entity Investigation' },
   ])('renders $title at $path', async ({ path, title }) => {
     await router.push(path)

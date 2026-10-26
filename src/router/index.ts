@@ -25,7 +25,7 @@ const router = createRouter({
           path: 'management',
           name: 'management',
           component: ManagementView,
-          meta: { title: 'Priority Queue', role: 'Management' },
+          meta: { title: 'Risk Breakdown', role: 'Management' },
         },
         {
           path: 'analyst/:entityId?',

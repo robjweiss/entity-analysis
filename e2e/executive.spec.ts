@@ -31,6 +31,8 @@ test.beforeEach(async ({ page }) => {
         await route.fulfill({ json: sonyFixture.riskChanges })
       } else if (url.pathname === '/api/projects') {
         await route.fulfill({ json: sonyFixture.projects })
+      } else if (url.pathname.endsWith('/entities')) {
+        await route.fulfill({ json: { entities: [] } })
       } else {
         await route.fulfill({ json: {} })
       }
@@ -253,10 +255,10 @@ test('shows loading and error states without inventing counts', async ({ page })
   await expect(page.getByTestId('project-total')).toHaveCount(0)
 })
 
-test('links to the Management queue without transferring the current project', async ({ page }) => {
+test('links to Risk Breakdown without transferring the current project', async ({ page }) => {
   await page.goto('/executive')
   await expect(page.getByTestId('project-total')).toBeVisible()
-  await page.getByRole('link', { name: 'Go to priority queue' }).click()
+  await page.getByRole('link', { name: 'Go to Risk Breakdown' }).click()
 
   await expect(page).toHaveURL(/\/management$/)
 })

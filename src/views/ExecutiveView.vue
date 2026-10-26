@@ -384,10 +384,10 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
           </CardHeader>
           <CardContent>
             <p class="text-sm text-muted-foreground">
-              Open the Management priority queue and select a project there to review entities.
+              Open Risk Breakdown and select a project there to review entities.
             </p>
             <Button as-child variant="outline" class="mt-3">
-              <RouterLink to="/management">Go to priority queue</RouterLink>
+              <RouterLink to="/management">Go to Risk Breakdown</RouterLink>
             </Button>
           </CardContent>
         </Card>

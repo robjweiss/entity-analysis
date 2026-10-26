@@ -60,12 +60,12 @@ describe('ManagementView', () => {
     expect(wrapper.get('[data-testid="priority-queue-project"]').element.tagName).toBe('SELECT')
   })
 
-  it('names the priority queue table with a caption', async () => {
+  it('names the risk breakdown table with a caption', async () => {
     mockApi()
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    expect(wrapper.get('table caption').text()).toBe('Priority queue entities')
+    expect(wrapper.get('table caption').text()).toBe('Risk breakdown entities')
   })
 
   it.each([

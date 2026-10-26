@@ -160,7 +160,7 @@ function clearFilters() {
 <template>
   <section aria-labelledby="page-title" class="mx-auto flex max-w-7xl flex-col gap-6">
     <div>
-      <h1 id="page-title" class="text-2xl font-semibold tracking-tight">Priority Queue</h1>
+      <h1 id="page-title" class="text-2xl font-semibold tracking-tight">Risk Breakdown</h1>
       <p class="mt-1 text-sm text-muted-foreground">
         Review risk signals across entities in a project.
       </p>
@@ -266,7 +266,7 @@ function clearFilters() {
           No entities match these filters.
         </p>
         <Table v-else-if="entityPage" class="min-w-[44rem] text-left">
-          <TableCaption class="sr-only">Priority queue entities</TableCaption>
+          <TableCaption class="sr-only">Risk breakdown entities</TableCaption>
           <TableHeader class="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
             <TableRow>
               <TableHead scope="col" class="px-4 py-3">Entity</TableHead>

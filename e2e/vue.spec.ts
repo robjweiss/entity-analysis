@@ -1,27 +1,45 @@
 import { test, expect } from '@playwright/test'
+import { sonyFixture } from './fixtures/sony.js'
 
-test('redirects the root route to the executive workspace', async ({ page }) => {
+test.beforeEach(async ({ page }) => {
+  await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/entities')) {
+      await route.fulfill({ json: { entities: [] } })
+    } else if (path === '/api/projects') {
+      await route.fulfill({ json: sonyFixture.projects })
+    } else {
+      await route.continue()
+    }
+  })
+})
+
+test('redirects the root route to the exposure snapshot', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL(/\/executive$/)
 })
 
-const workspaces = [
-  { role: 'executive', path: '/executive' },
-  { role: 'management', path: '/management' },
-  { role: 'analyst', path: '/analyst' },
+const views = [
+  { title: 'Exposure Snapshot', path: '/executive' },
+  { title: 'Risk Breakdown', path: '/management' },
+  { title: 'Entity Investigation', path: '/analyst' },
 ]
 
-const workspaceTransitions = workspaces.flatMap((source) =>
-  workspaces
-    .filter((destination) => destination.role !== source.role)
+const viewTransitions = views.flatMap((source) =>
+  views
+    .filter((destination) => destination.path !== source.path)
     .map((destination) => ({ source, destination })),
 )
 
-for (const { source, destination } of workspaceTransitions) {
-  test(`switches from ${source.role} to ${destination.role}`, async ({ page }) => {
+for (const { source, destination } of viewTransitions) {
+  test(`navigates from ${source.title} to ${destination.title}`, async ({ page }) => {
     await page.goto(source.path)
-    await page.getByTestId('role-switcher').click()
-    await page.getByTestId(`role-option-${destination.role}`).click()
+    await page.locator('[data-sidebar="sidebar"]').getByRole('link', { name: destination.title }).click()
     await expect(page).toHaveURL(new RegExp(`${destination.path}$`))
   })
 }
+
+test('does not show a workspace switcher in the header', async ({ page }) => {
+  await page.goto('/executive')
+  await expect(page.getByTestId('role-switcher')).toHaveCount(0)
+})

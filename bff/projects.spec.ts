@@ -81,7 +81,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('priority queue Sayari gateway', () => {
+describe('risk breakdown Sayari gateway', () => {
   it('loads unarchived projects with an upstream cursor', async () => {
     const { client, getProjects: getProjectsMock } = createClient()
     await getProjects(client, { next: 'cursor' })
