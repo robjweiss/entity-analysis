@@ -1,8 +1,27 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { sonyFixture } from './fixtures/sony.js'
 
 const { investigation } = sonyFixture
 const { initial, moreRelationships, moreRecords } = investigation
+
+async function selectSonyMatch(page: Page) {
+  await page.goto('/analyst')
+  const projectEntitySelect = page.getByTestId('investigation-project-entity')
+  await expect(
+    projectEntitySelect.getByRole('option', { name: investigation.projectEntityLabel }),
+  ).toBeAttached()
+  await projectEntitySelect.selectOption(investigation.projectEntityId)
+  const resolvedEntitySelect = page.getByTestId('investigation-entity')
+  await expect(
+    resolvedEntitySelect.getByRole('option', { name: investigation.resolvedEntityLabel }),
+  ).toBeAttached()
+  await resolvedEntitySelect.selectOption(investigation.resolvedEntityId)
+}
+
+async function mockProjectApis(page: Page, entities = sonyFixture.entities.initial) {
+  await page.route('**/api/projects', (route) => route.fulfill({ json: sonyFixture.projects }))
+  await page.route('**/api/projects/*/entities', (route) => route.fulfill({ json: entities }))
+}
 
 test('investigates a selected Sony project entity and loads more Sayari data', async ({ page }) => {
   const projectEntityRequests: string[] = []
@@ -116,4 +135,89 @@ test('investigates a selected Sony project entity and loads more Sayari data', a
     pathname: `/api/entities/${investigation.resolvedEntityId}/records`,
     next: initial.nextRecord!,
   })
+})
+
+test('shows when a project entity has no resolved matches', async ({ page }) => {
+  const entities = structuredClone(sonyFixture.entities.initial)
+  entities.entities[0]!.matches = []
+  await mockProjectApis(page, entities)
+
+  await page.goto('/analyst')
+  await page.getByTestId('investigation-project-entity').selectOption(investigation.projectEntityId)
+
+  await expect(
+    page.getByText('No resolved Sayari matches are available for this project entity.'),
+  ).toBeVisible()
+  await expect(page.getByTestId('investigation-entity')).toBeDisabled()
+})
+
+test('clears stale investigation data when switching resolved entities', async ({ page }) => {
+  const secondMatch = { id: 'another-entity', label: 'Another resolved entity' }
+  const entities = structuredClone(sonyFixture.entities.initial)
+  entities.entities[0]!.matches!.push(secondMatch)
+  await mockProjectApis(page, entities)
+  let releaseSecondInvestigation!: () => void
+  let markSecondInvestigationRequested!: () => void
+  const secondInvestigationGate = new Promise<void>((resolve) => {
+    releaseSecondInvestigation = resolve
+  })
+  const secondInvestigationRequested = new Promise<void>((resolve) => {
+    markSecondInvestigationRequested = resolve
+  })
+  await page.route('**/api/entities/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === `/api/entities/${investigation.resolvedEntityId}`) {
+      await route.fulfill({ json: structuredClone(initial) })
+      return
+    }
+    markSecondInvestigationRequested()
+    await secondInvestigationGate
+    const next = structuredClone(initial)
+    next.profile = { ...next.profile, id: secondMatch.id, label: secondMatch.label }
+    await route.fulfill({ json: next })
+  })
+  await selectSonyMatch(page)
+  await expect(page.getByTestId('entity-label')).toHaveText(initial.profile.label)
+
+  const matches = page.getByTestId('investigation-entity')
+  await matches.selectOption(secondMatch.id)
+  try {
+    await secondInvestigationRequested
+    await expect(page.getByTestId('entity-label')).toHaveCount(0)
+  } finally {
+    releaseSecondInvestigation()
+  }
+  await expect(page.getByTestId('entity-label')).toHaveText(secondMatch.label)
+})
+
+test('shows investigation API errors', async ({ page }) => {
+  await mockProjectApis(page)
+  await page.route(`**/api/entities/${investigation.resolvedEntityId}`, (route) =>
+    route.fulfill({ status: 500, json: { error: { message: 'Investigation unavailable.' } } }),
+  )
+  await selectSonyMatch(page)
+
+  await expect(page.getByText('Investigation unavailable.', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('entity-label')).toHaveCount(0)
+})
+
+test('shows failures when loading more relationships and records', async ({ page }) => {
+  await mockProjectApis(page)
+  await page.route('**/api/entities/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === `/api/entities/${investigation.resolvedEntityId}`) {
+      await route.fulfill({ json: structuredClone(initial) })
+    } else {
+      const message = pathname.endsWith('/relationships')
+        ? 'Relationships unavailable.'
+        : 'Records unavailable.'
+      await route.fulfill({ status: 500, json: { error: { message } } })
+    }
+  })
+  await selectSonyMatch(page)
+
+  await page.getByTestId('show-more-relationships').click()
+  await expect(page.getByText('Relationships unavailable.', { exact: true })).toBeVisible()
+  await page.getByTestId('show-more-records').click()
+  await expect(page.getByText('Records unavailable.', { exact: true })).toBeVisible()
 })
