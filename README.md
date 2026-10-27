@@ -114,10 +114,7 @@ pnpm test:unit
 
 ```sh
 # Install browsers for the first run
-npx playwright install
-
-# When testing on CI, must build the project first
-pnpm build
+pnpm exec playwright install.
 
 # Runs the end-to-end tests
 pnpm test:e2e
