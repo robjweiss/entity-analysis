@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
+import RecentRiskChanges from '@/components/RecentRiskChanges.vue'
 import ProjectPicker from '@/components/ProjectPicker.vue'
-import { getProjectExposure, getProjectRiskChanges } from '@/api/projects'
-import type { ProjectExposure, ProjectRiskChanges } from '@shared/api/projects'
+import { getProjectExposure } from '@/api/projects'
+import type { ProjectExposure } from '@shared/api/projects'
 import { useProjectSelection } from '@/composables/useProjectSelection'
+import { useProjectRiskChanges } from '@/composables/useProjectRiskChanges'
 
 type Category = keyof ProjectExposure['categories']
 
@@ -24,47 +26,15 @@ const { projectPage, projectPagination, selectedProjectId, projectLoading, proje
   useProjectSelection()
 
 const exposure = ref<ProjectExposure>()
-const changes = ref<ProjectRiskChanges>()
 const exposureLoading = ref(false)
-const changesLoading = ref(false)
-const moreLoading = ref(false)
 const exposureError = ref('')
-const changesError = ref('')
-const moreError = ref('')
-const visibleChangeCount = ref(5)
-const changesList = ref<HTMLUListElement>()
-let activeController: AbortController | undefined
+const riskChanges = useProjectRiskChanges(selectedProjectId)
 
 const selectedProject = computed(() =>
   projectPage.value?.projects.find((project) => project.id === selectedProjectId.value),
 )
-const visibleChanges = computed(
-  () => changes.value?.changes.slice(0, visibleChangeCount.value) ?? [],
-)
-const canShowMore = computed(() =>
-  Boolean(
-    changes.value &&
-    (visibleChangeCount.value < changes.value.changes.length || changes.value.next),
-  ),
-)
-
 function countText(count: ProjectExposure['total']) {
   return `${count.qualifier === 'gte' ? 'at least ' : ''}${count.count.toLocaleString()}`
-}
-
-function categoryText(key: Category) {
-  if (!exposure.value) return ''
-  const category = exposure.value.categories[key]
-  const total = exposure.value.total
-  return `${countText(category)} of ${countText(total)} project entities`
-}
-
-function categoryPercent(key: Category) {
-  if (!exposure.value) return undefined
-  const { total, categories } = exposure.value
-  const category = categories[key]
-  if (total.qualifier !== 'eq' || category.qualifier !== 'eq' || total.count === 0) return undefined
-  return Math.min(100, (category.count / total.count) * 100)
 }
 
 function percentText(value: number) {
@@ -72,64 +42,38 @@ function percentText(value: number) {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`
 }
 
-function factorLabel(id: string) {
-  return id.replace(/_/g, ' ')
-}
-
-function dateLabel(timestamp: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp))
-}
-
-async function showMore() {
-  const current = changes.value
-  if (!current || moreLoading.value) return
-  moreError.value = ''
-  if (visibleChangeCount.value < current.changes.length) {
-    visibleChangeCount.value = Math.min(visibleChangeCount.value + 5, current.changes.length)
-    await nextTick()
-    if (changesList.value) changesList.value.scrollTop = changesList.value.scrollHeight
-    return
-  }
-  if (!current.next || !activeController) return
-
-  moreLoading.value = true
-  const controller = activeController
-  try {
-    const page = await getProjectRiskChanges(
-      selectedProjectId.value,
-      { next: current.next, asOf: current.to },
-      { signal: controller.signal },
-    )
-    if (controller.signal.aborted) return
-    changes.value = { ...page, changes: [...current.changes, ...page.changes] }
-    visibleChangeCount.value = Math.min(visibleChangeCount.value + 5, changes.value.changes.length)
-    await nextTick()
-    if (changesList.value) changesList.value.scrollTop = changesList.value.scrollHeight
-  } catch (error) {
-    if (!controller.signal.aborted) moreError.value = (error as Error).message
-  } finally {
-    if (!controller.signal.aborted) moreLoading.value = false
-  }
-}
+const themeRows = computed(() => {
+  const currentExposure = exposure.value
+  if (!currentExposure) return []
+  return themes.map((theme) => {
+    const { total, categories } = currentExposure
+    const category = categories[theme.key]
+    const displayCount = `${countText(category)} of ${countText(total)} project entities`
+    const percent =
+      total.qualifier === 'eq' && category.qualifier === 'eq' && total.count > 0
+        ? Math.min(100, (category.count / total.count) * 100)
+        : undefined
+    return {
+      ...theme,
+      countText: displayCount,
+      percent,
+      percentLabel: percent === undefined ? undefined : percentText(percent),
+      unavailableReason:
+        percent === undefined
+          ? total.qualifier === 'eq' && total.count === 0
+            ? 'No project entities to compare.'
+            : 'Proportion unavailable: count is not exact.'
+          : '',
+    }
+  })
+})
 
 watch(selectedProjectId, (projectId, _old, onCleanup) => {
   const controller = new AbortController()
-  activeController = controller
   onCleanup(() => controller.abort())
   exposure.value = undefined
-  changes.value = undefined
-  visibleChangeCount.value = 5
-  moreLoading.value = false
-  moreError.value = ''
   exposureError.value = ''
-  changesError.value = ''
   exposureLoading.value = Boolean(projectId)
-  changesLoading.value = Boolean(projectId)
   if (!projectId) return
 
   void getProjectExposure(projectId, { signal: controller.signal })
@@ -141,17 +85,6 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
     })
     .finally(() => {
       if (!controller.signal.aborted) exposureLoading.value = false
-    })
-
-  void getProjectRiskChanges(projectId, {}, { signal: controller.signal })
-    .then((result) => {
-      if (!controller.signal.aborted) changes.value = result
-    })
-    .catch((error) => {
-      if (!controller.signal.aborted) changesError.value = (error as Error).message
-    })
-    .finally(() => {
-      if (!controller.signal.aborted) changesLoading.value = false
     })
 })
 </script>
@@ -223,30 +156,26 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
               </Alert>
               <ul v-else-if="exposure" class="grid gap-5">
                 <li
-                  v-for="theme in themes"
+                  v-for="theme in themeRows"
                   :key="theme.key"
                   :data-testid="`theme-${theme.key}`"
                   class="grid gap-2"
                 >
                   <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span class="font-medium">{{ theme.label }}</span>
-                    <Badge v-if="categoryPercent(theme.key) !== undefined" variant="muted">
-                      {{ percentText(categoryPercent(theme.key)!) }}
+                    <Badge v-if="theme.percentLabel" variant="muted">
+                      {{ theme.percentLabel }}
                     </Badge>
                   </div>
-                  <span class="text-xs text-muted-foreground">{{ categoryText(theme.key) }}</span>
+                  <span class="text-xs text-muted-foreground">{{ theme.countText }}</span>
                   <Progress
-                    v-if="categoryPercent(theme.key) !== undefined"
+                    v-if="theme.percent !== undefined"
                     class="h-3"
-                    :model-value="categoryPercent(theme.key)"
-                    :aria-label="`${theme.label}: ${categoryText(theme.key)}`"
+                    :model-value="theme.percent"
+                    :aria-label="`${theme.label}: ${theme.countText}`"
                   />
                   <span v-else class="text-xs text-muted-foreground">
-                    {{
-                      exposure.total.count === 0 && exposure.total.qualifier === 'eq'
-                        ? 'No project entities to compare.'
-                        : 'Proportion unavailable: count is not exact.'
-                    }}
+                    {{ theme.unavailableReason }}
                   </span>
                 </li>
               </ul>
@@ -263,56 +192,16 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
               </p>
             </CardHeader>
             <CardContent>
-              <p v-if="changesLoading" role="status">Loading recent changes…</p>
-              <Alert v-else-if="changesError" variant="destructive">
-                <AlertDescription>{{ changesError }}</AlertDescription>
-              </Alert>
-              <template v-else-if="changes">
-                <p v-if="!changes.changes.length" class="text-sm text-muted-foreground">
-                  {{
-                    changes.next
-                      ? 'No risk changes returned on this page.'
-                      : 'No risk changes returned for this period.'
-                  }}
-                </p>
-                <ul
-                  ref="changesList"
-                  v-else
-                  aria-label="Recent risk changes"
-                  tabindex="0"
-                  class="mt-4 max-h-80 divide-y overflow-y-auto pr-2"
-                >
-                  <li
-                    v-for="(change, index) in visibleChanges"
-                    :key="`${change.projectEntityId}-${change.factor}-${change.timestamp}-${index}`"
-                    class="grid gap-2 py-3 text-sm"
-                  >
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <span class="font-medium">{{
-                        change.entityName || `Project entity ${change.projectEntityId}`
-                      }}</span>
-                      <time class="text-xs text-muted-foreground" :datetime="change.timestamp">{{
-                        dateLabel(change.timestamp)
-                      }}</time>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <Badge variant="muted">Signal {{ change.changeType }}</Badge>
-                      <span>{{ change.factorLabel || factorLabel(change.factor) }}</span>
-                    </div>
-                  </li>
-                </ul>
-                <p v-if="moreError" role="alert" class="mt-3 text-sm">{{ moreError }}</p>
-                <Button
-                  v-if="canShowMore"
-                  variant="outline"
-                  size="sm"
-                  class="mt-3"
-                  :disabled="moreLoading"
-                  @click="showMore"
-                >
-                  {{ moreLoading ? 'Loading more changes…' : 'Show more changes' }}
-                </Button>
-              </template>
+              <RecentRiskChanges
+                :changes="riskChanges.changes.value"
+                :loading="riskChanges.loading.value"
+                :loading-more="riskChanges.loadingMore.value"
+                :error="riskChanges.error.value"
+                :more-error="riskChanges.moreError.value"
+                :visible-changes="riskChanges.visibleChanges.value"
+                :can-show-more="riskChanges.canShowMore.value"
+                @show-more="riskChanges.showMore"
+              />
             </CardContent>
           </Card>
         </section>

@@ -132,6 +132,8 @@ test('shows more risk changes from the Sony fixture', async ({ page }) => {
 
   const list = page.getByRole('list', { name: 'Recent risk changes' })
   await expect(list.locator('li')).toHaveCount(5)
+  expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  expect(await list.evaluate((element) => element.scrollTop)).toBe(0)
   await page.getByRole('button', { name: 'Show more changes' }).click()
 
   await expect(list.locator('li')).toHaveCount(10)
