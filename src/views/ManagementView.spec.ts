@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ManagementView from './ManagementView.vue'
+import EntityRiskDetailSheet from '@/components/EntityRiskDetailSheet.vue'
+import type { EntityPage } from '@shared/api/projects'
 
 const projects = { projects: [{ id: 'project-1', label: 'Supplier review' }] }
-const entity = {
+const entity: EntityPage['entities'][number] = {
   id: 'entity-1',
   label: 'Example supplier',
   countries: ['JPN'],
@@ -42,6 +44,16 @@ function mockApi(entityPage: object = entities, projectData: object = projects) 
 }
 
 afterEach(() => vi.unstubAllGlobals())
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 describe('ManagementView', () => {
   it('loads the first project and its entities', async () => {
@@ -180,6 +192,60 @@ describe('ManagementView', () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities')
   })
 
+  it('does not request entities while filter values are only drafts', async () => {
+    const fetchMock = mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    const requestsBeforeDraft = fetchMock.mock.calls.filter(([url]) =>
+      url.includes('/entities'),
+    ).length
+
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue(' draft ')
+    await wrapper.get('[data-testid="priority-queue-country-filter"]').setValue('jpn')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes('/entities'))).toHaveLength(
+      requestsBeforeDraft,
+    )
+  })
+
+  it('normalizes all draft filters only when they are applied', async () => {
+    const fetchMock = mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue(' supplier ')
+    await wrapper.get('[data-testid="priority-queue-country-filter"]').setValue(' jpn ')
+    await wrapper.get('[data-testid="priority-queue-category-filter"]').setValue(' sanctions ')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
+      '/api/projects/project-1/entities?name=supplier&country=JPN&riskCategory=sanctions',
+    )
+  })
+
+  it('uses one first-page request when filters are applied from a later page', async () => {
+    const fetchMock = mockApi({ ...entities, next: 'next-page' })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    const requestsBeforeApply = fetchMock.mock.calls.filter(([url]) =>
+      url.includes('/entities'),
+    ).length
+
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('supplier')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const requestsAfterApply = fetchMock.mock.calls.filter(([url]) => url.includes('/entities'))
+    expect(requestsAfterApply).toHaveLength(requestsBeforeApply + 1)
+    expect(requestsAfterApply.at(-1)?.[0]).toBe('/api/projects/project-1/entities?name=supplier')
+  })
+
   it('requests the next page with a BFF cursor', async () => {
     const fetchMock = mockApi({ ...entities, next: 'next-page' })
     const wrapper = mount(ManagementView)
@@ -208,6 +274,125 @@ describe('ManagementView', () => {
     await flushPromises()
 
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-2/entities')
+  })
+
+  it('preserves applied filters and resets the entity cursor on project change with one request', async () => {
+    const fetchMock = mockApi(
+      { ...entities, next: 'next-page' },
+      {
+        projects: [
+          { id: 'project-1', label: 'Supplier review' },
+          { id: 'project-2', label: 'Second project' },
+        ],
+      },
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('supplier')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    const beforeProjectChange = fetchMock.mock.calls.filter(([url]) =>
+      url.includes('/entities'),
+    ).length
+
+    await wrapper.get('[data-testid="priority-queue-project"]').setValue('project-2')
+    await flushPromises()
+
+    const entityRequests = fetchMock.mock.calls.filter(([url]) => url.includes('/entities'))
+    expect(entityRequests).toHaveLength(beforeProjectChange + 1)
+    expect(entityRequests.at(-1)?.[0]).toBe('/api/projects/project-2/entities?name=supplier')
+  })
+
+  it('resets the entity cursor when project-page pagination selects a new project', async () => {
+    const fetchMock = vi.fn<
+      (input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >((input) => {
+      const data =
+        input === '/api/projects?next=next-project'
+          ? { projects: [{ id: 'project-2', label: 'Second project' }] }
+          : input === '/api/projects'
+            ? { projects: [{ id: 'project-1', label: 'Supplier review' }], next: 'next-project' }
+            : input.includes('/entities')
+              ? { ...entities, next: 'next-entity' }
+              : projects
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(data) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('supplier')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    const beforeProjectPage = fetchMock.mock.calls.filter(([url]) =>
+      url.includes('/entities'),
+    ).length
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next projects')!
+      .trigger('click')
+    await flushPromises()
+
+    const entityRequests = fetchMock.mock.calls.filter(([url]) => url.includes('/entities'))
+    expect(entityRequests).toHaveLength(beforeProjectPage + 1)
+    expect(entityRequests.at(-1)?.[0]).toBe('/api/projects/project-2/entities?name=supplier')
+  })
+
+  it('does not restore a prior entity cursor when switching away from and back to a project', async () => {
+    const fetchMock = mockApi(
+      { ...entities, next: 'next-entity' },
+      {
+        projects: [
+          { id: 'project-1', label: 'Supplier review' },
+          { id: 'project-2', label: 'Second project' },
+        ],
+      },
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-project"]').setValue('project-2')
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-project"]').setValue('project-1')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes('/entities')).at(-1)?.[0]).toBe(
+      '/api/projects/project-1/entities',
+    )
+  })
+
+  it('resets the entity cursor when identical filters are reapplied', async () => {
+    const fetchMock = mockApi({ ...entities, next: 'next-entity' })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('supplier')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes('/entities')).at(-1)?.[0]).toBe(
+      '/api/projects/project-1/entities?name=supplier',
+    )
   })
 
   it('loads another page of projects with its cursor', async () => {
@@ -252,6 +437,155 @@ describe('ManagementView', () => {
     expect(document.body.querySelector('[data-testid="risk-factor-level"]')?.textContent).toBe(
       'Critical',
     )
+  })
+
+  it('shows detail request failures in the sheet', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<(input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>>((input) =>
+        Promise.resolve({
+          ok: !input.includes('/entities/entity-1'),
+          json: () =>
+            Promise.resolve(
+              input.includes('/entities/entity-1')
+                ? { error: { message: 'Unable to load risk details.' } }
+                : input.endsWith('/entities')
+                  ? entities
+                  : projects,
+            ),
+        }),
+      ),
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .get('button[aria-label="Review risk details for Example supplier"]')
+      .trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Unable to load risk details.')
+  })
+
+  it('shows empty detail content when the BFF has no recorded risks', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<(input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>>((input) =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve(
+              input.includes('/entities/entity-1')
+                ? { riskFactors: [], riskChanges: [] }
+                : input.endsWith('/entities')
+                  ? entities
+                  : projects,
+            ),
+        }),
+      ),
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .get('button[aria-label="Review risk details for Example supplier"]')
+      .trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('No recorded risk factors.')
+  })
+
+  it('loads details when mounted initially open', async () => {
+    const fetchMock = mockApi()
+    mount(EntityRiskDetailSheet, {
+      props: { projectId: 'project-1', entity, open: true },
+    })
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities/entity-1')
+  })
+
+  it('aborts a pending detail request when the sheet closes', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<
+      (
+        input: string,
+        init?: { signal?: AbortSignal },
+      ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >(() => pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(EntityRiskDetailSheet, {
+      props: { projectId: 'project-1', entity, open: true },
+    })
+    await flushPromises()
+    const signal = fetchMock.mock.calls[0]?.[1]?.signal
+
+    await wrapper.setProps({ open: false })
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('aborts a pending detail request when the sheet unmounts', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<
+      (
+        input: string,
+        init?: { signal?: AbortSignal },
+      ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >(() => pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(EntityRiskDetailSheet, {
+      props: { projectId: 'project-1', entity, open: true },
+    })
+    await flushPromises()
+    const signal = fetchMock.mock.calls[0]?.[1]?.signal
+
+    wrapper.unmount()
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { outcome: 'success', ok: true },
+    { outcome: 'failure', ok: false },
+  ])('ignores a stale detail $outcome after close and reopen', async ({ ok }) => {
+    const first = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const latestDetail = {
+      riskFactors: [
+        {
+          id: 'current',
+          label: 'Current response',
+          level: 'critical',
+          riskCategories: [],
+          sourceEntityIds: [],
+          networkPaths: [],
+        },
+      ],
+      riskChanges: [],
+    }
+    const responses = [
+      first.promise,
+      Promise.resolve({ ok: true, json: () => Promise.resolve(latestDetail) }),
+    ]
+    const fetchMock = vi.fn<
+      (input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >(() => responses.shift()!)
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(EntityRiskDetailSheet, {
+      props: { projectId: 'project-1', entity, open: true },
+    })
+    await flushPromises()
+    await wrapper.setProps({ open: false })
+    await flushPromises()
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+
+    first.resolve({
+      ok,
+      json: () => Promise.resolve(ok ? detail : { error: { message: 'Stale failure.' } }),
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Current response')
+    expect(document.body.textContent).not.toContain('Stale failure.')
   })
 
   it('shows the empty state returned by the BFF', async () => {

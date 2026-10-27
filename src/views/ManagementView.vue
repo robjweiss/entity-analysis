@@ -8,13 +8,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import ProjectPicker from '@/components/ProjectPicker.vue'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+import EntityRiskDetailSheet from '@/components/EntityRiskDetailSheet.vue'
 import {
   Table,
   TableBody,
@@ -24,8 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { getProjectEntityDetail, listProjectEntities } from '@/api/projects'
-import type { EntityDetail, EntityPage } from '@shared/api/projects'
+import { listProjectEntities } from '@/api/projects'
+import type { EntityPage } from '@shared/api/projects'
 import { useProjectSelection } from '@/composables/useProjectSelection'
 
 type Entity = EntityPage['entities'][number]
@@ -47,9 +41,7 @@ const {
   projectError,
 } = useProjectSelection()
 
-const name = ref('')
-const country = ref('')
-const riskCategory = ref('')
+const draftFilters = ref({ name: '', country: '', riskCategory: '' })
 const filters = ref({ name: '', country: '', riskCategory: '' })
 const entityPage = ref<EntityPage>()
 const entityCursor = ref<Cursor>({})
@@ -57,17 +49,23 @@ const entityLoading = ref(false)
 const entityError = ref('')
 
 const selectedEntity = ref<Entity>()
-const entityDetail = ref<EntityDetail>()
-const detailLoading = ref(false)
-const detailError = ref('')
+const projectModel = computed({
+  get: () => selectedProjectId.value,
+  set: (projectId: string) => {
+    selectedProjectId.value = projectId
+    entityCursor.value = {}
+  },
+})
+const detailOpen = computed({
+  get: () => Boolean(selectedEntity.value),
+  set: (open: boolean) => {
+    if (!open) selectedEntity.value = undefined
+  },
+})
 
 const pageCountLabel = computed(() => {
   const count = entityPage.value?.entities.length ?? 0
   return `${count} ${count === 1 ? 'entity' : 'entities'} on this page`
-})
-
-watch([selectedProjectId, filters], () => {
-  entityCursor.value = {}
 })
 
 watch(
@@ -99,41 +97,23 @@ watch(
   { immediate: true },
 )
 
-watch(selectedEntity, async (entity, _old, onCleanup) => {
-  const controller = new AbortController()
-  onCleanup(() => controller.abort())
-  entityDetail.value = undefined
-  detailError.value = ''
-  if (!entity) {
-    detailLoading.value = false
-    return
-  }
-  detailLoading.value = true
-  try {
-    const detail = await getProjectEntityDetail(selectedProjectId.value, entity.id, {
-      signal: controller.signal,
-    })
-    if (!controller.signal.aborted) entityDetail.value = detail
-  } catch (error) {
-    if (!controller.signal.aborted) detailError.value = (error as Error).message
-  } finally {
-    if (!controller.signal.aborted) detailLoading.value = false
-  }
-})
-
 function applyFilters() {
   filters.value = {
-    name: name.value.trim(),
-    country: country.value.trim().toUpperCase(),
-    riskCategory: riskCategory.value.trim(),
+    name: draftFilters.value.name.trim(),
+    country: draftFilters.value.country.trim().toUpperCase(),
+    riskCategory: draftFilters.value.riskCategory.trim(),
   }
+  entityCursor.value = {}
 }
 
 function clearFilters() {
-  name.value = ''
-  country.value = ''
-  riskCategory.value = ''
+  draftFilters.value = { name: '', country: '', riskCategory: '' }
   applyFilters()
+}
+
+function changeProjectPage(cursor: Cursor) {
+  projectCursor.value = cursor
+  entityCursor.value = {}
 }
 </script>
 
@@ -149,12 +129,12 @@ function clearFilters() {
     <Card class="gap-0 py-0">
       <CardContent class="grid gap-3 py-4">
         <ProjectPicker
-          v-model="selectedProjectId"
+          v-model="projectModel"
           :page="projectPage"
           :loading="projectLoading"
           :error="projectError"
           test-id="priority-queue-project"
-          @pagination="projectCursor = $event"
+          @pagination="changeProjectPage"
         />
 
         <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters">
@@ -164,13 +144,13 @@ function clearFilters() {
               <InputGroupAddon>
                 <Search class="size-4" />
               </InputGroupAddon>
-              <InputGroupInput v-model="name" data-testid="priority-queue-search" />
+              <InputGroupInput v-model="draftFilters.name" data-testid="priority-queue-search" />
             </InputGroup>
           </label>
           <label class="grid gap-1.5 text-sm font-medium">
             Country (3-letter code)
             <Input
-              v-model="country"
+              v-model="draftFilters.country"
               data-testid="priority-queue-country-filter"
               placeholder="JPN"
               maxlength="3"
@@ -179,7 +159,7 @@ function clearFilters() {
           <label class="grid gap-1.5 text-sm font-medium">
             Risk category ID
             <Input
-              v-model="riskCategory"
+              v-model="draftFilters.riskCategory"
               data-testid="priority-queue-category-filter"
               placeholder="sanctions"
             />
@@ -300,61 +280,9 @@ function clearFilters() {
     </Card>
   </section>
 
-  <Sheet
-    :open="Boolean(selectedEntity)"
-    @update:open="(open) => !open && (selectedEntity = undefined)"
-  >
-    <SheetContent class="w-full overflow-y-auto sm:max-w-lg">
-      <SheetHeader v-if="selectedEntity">
-        <SheetTitle>{{ selectedEntity.label }}</SheetTitle>
-        <SheetDescription>{{ selectedEntity.countries.join(', ') }}</SheetDescription>
-      </SheetHeader>
-      <div v-if="selectedEntity" class="grid gap-6 px-4 pb-6">
-        <p v-if="detailLoading" role="status">Loading risk details…</p>
-        <Alert v-else-if="detailError" variant="destructive">
-          <AlertDescription>{{ detailError }}</AlertDescription>
-        </Alert>
-        <template v-else-if="entityDetail">
-          <div class="grid gap-2">
-            <h2 class="text-sm font-medium">Risk factors</h2>
-            <p v-if="!entityDetail.riskFactors.length" class="text-sm text-muted-foreground">
-              No recorded risk factors.
-            </p>
-            <ul v-else class="grid gap-2">
-              <li
-                v-for="factor in entityDetail.riskFactors"
-                :key="factor.id"
-                class="rounded-md border p-3 text-sm"
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <span>{{ factor.label }}</span>
-                  <Badge data-testid="risk-factor-level" :variant="factor.level" class="shrink-0">
-                    {{ riskSeverityLabels[factor.level] }}
-                  </Badge>
-                </div>
-              </li>
-            </ul>
-          </div>
-          <div class="grid gap-2">
-            <h2 class="text-sm font-medium">Risk changes</h2>
-            <p v-if="!entityDetail.riskChanges.length" class="text-sm text-muted-foreground">
-              No recorded risk changes.
-            </p>
-            <ul v-else class="grid gap-2">
-              <li
-                v-for="change in entityDetail.riskChanges"
-                :key="`${change.id}-${change.timestamp}`"
-                class="rounded-md border p-3 text-sm"
-              >
-                {{ change.id }} · {{ change.changeType }} · {{ change.timestamp }}
-              </li>
-            </ul>
-            <p v-if="entityDetail.nextRiskChange" class="text-sm text-muted-foreground">
-              More changes are available.
-            </p>
-          </div>
-        </template>
-      </div>
-    </SheetContent>
-  </Sheet>
+  <EntityRiskDetailSheet
+    v-model:open="detailOpen"
+    :entity="selectedEntity"
+    :project-id="selectedProjectId"
+  />
 </template>
