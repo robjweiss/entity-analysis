@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AnalystView from './AnalystView.vue'
+import type { EntityInvestigation } from '@shared/api/entities'
 
 type MockResponse = { ok: boolean; json: () => Promise<unknown> }
 
@@ -498,6 +499,42 @@ describe('AnalystView', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load more relationships.')
   })
 
+  it.each([
+    { button: 'show-more-relationships', path: '/relationships', label: 'Loading relationships…' },
+    { button: 'show-more-records', path: '/records', label: 'Loading records…' },
+  ])('disables the $button while its page is loading', async ({ button, path, label }) => {
+    const pending = deferred<MockResponse>()
+    const wrapper = await mountInvestigationView((input) =>
+      input.includes(path) ? pending.promise : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+    await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+
+    expect(wrapper.get(`[data-testid="${button}"]`).text()).toBe(label)
+    expect((wrapper.get(`[data-testid="${button}"]`).element as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    pending.resolve(apiResponse({ relationships: [], records: [] }))
+    await flushPromises()
+  })
+
+  it('hides pagination controls when both sections are exhausted', async () => {
+    const response = {
+      ...structuredClone(investigation),
+      nextRelationship: undefined,
+      nextRecord: undefined,
+    }
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/entities/entity-1' ? apiResponse(response) : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="show-more-relationships"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="show-more-records"]').exists()).toBe(false)
+  })
+
   it('does not display a stale investigation response after selecting another match', async () => {
     const first = deferred<MockResponse>()
     const wrapper = await mountInvestigationView((input) =>
@@ -778,5 +815,77 @@ describe('AnalystView', () => {
     expect(wrapper.text()).toContain('A risk signal.')
     expect(wrapper.text()).not.toContain('Present')
     expect(wrapper.text()).not.toContain('Numeric value: 5')
+  })
+
+  it('omits unavailable profile facts and displays fallback country and status badges', async () => {
+    const response = structuredClone(investigation) as EntityInvestigation
+    response.profile.countries = []
+    response.profile.sanctioned = false
+    response.profile.pep = true
+    response.profile.closed = true
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/entities/entity-1' ? apiResponse(response) : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No countries recorded')
+    expect(wrapper.text()).toContain('PEP')
+    expect(wrapper.text()).toContain('Closed')
+    expect(wrapper.text()).not.toContain('Registration:')
+    expect(wrapper.text()).not.toContain('Company type:')
+    expect(wrapper.text()).not.toContain('Status:')
+  })
+
+  it('joins relationship types and countries and shows relationship status badges', async () => {
+    const response = structuredClone(investigation) as EntityInvestigation
+    response.relationships[0] = {
+      ...response.relationships[0]!,
+      countries: ['JPN', 'USA'],
+      types: ['Has Director', 'Has Shareholder'],
+      sanctioned: true,
+      pep: true,
+    }
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/entities/entity-1' ? apiResponse(response) : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Has Director, Has Shareholder · JPN, USA')
+    expect(wrapper.text()).toContain('Sanctioned')
+    expect(wrapper.text()).toContain('PEP')
+  })
+
+  it('shows record descriptions with publication and acquisition dates and truncates addresses', async () => {
+    const response = structuredClone(investigation) as EntityInvestigation
+    response.profile.addresses = [
+      'First address',
+      'Second address',
+      'Third address',
+      'Hidden address',
+    ]
+    response.records = [
+      {
+        id: 'record-1',
+        label: 'Company record',
+        type: 'about',
+        publicationDate: '2026-09-15',
+        acquisitionDate: '2026-09-20',
+      },
+      { id: 'record-2', label: 'Mention record', type: 'mention' },
+    ]
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/entities/entity-1' ? apiResponse(response) : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(
+      'About this entity · Published 2026-09-15 · Collected 2026-09-20',
+    )
+    expect(wrapper.text()).toContain('Mentions this entity')
+    expect(wrapper.text()).toContain('Third address')
+    expect(wrapper.text()).not.toContain('Hidden address')
   })
 })

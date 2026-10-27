@@ -11,16 +11,9 @@ import {
 } from '@/components/ui/sheet'
 import { getProjectEntityDetail } from '@/api/projects'
 import type { EntityDetail, EntityPage } from '@shared/api/projects'
+import { riskLevelLabels } from '@/lib/riskLevelLabels'
 
 type Entity = EntityPage['entities'][number]
-type RiskSeverity = NonNullable<Entity['riskSeverity']>
-const riskSeverityLabels: Record<RiskSeverity, string> = {
-  critical: 'Critical',
-  high: 'High',
-  elevated: 'Elevated',
-  relevant: 'Relevant',
-}
-
 const props = defineProps<{ projectId: string; entity?: Entity }>()
 const open = defineModel<boolean>('open', { required: true })
 const entityDetail = ref<EntityDetail>()
@@ -81,7 +74,7 @@ watch(
                 <div class="flex items-start justify-between gap-3">
                   <span>{{ factor.label }}</span>
                   <Badge data-testid="risk-factor-level" :variant="factor.level" class="shrink-0">{{
-                    riskSeverityLabels[factor.level]
+                    riskLevelLabels[factor.level]
                   }}</Badge>
                 </div>
               </li>

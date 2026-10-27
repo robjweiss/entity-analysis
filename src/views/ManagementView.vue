@@ -21,17 +21,10 @@ import {
 import { listProjectEntities } from '@/api/projects'
 import type { EntityPage } from '@shared/api/projects'
 import { useProjectSelection } from '@/composables/useProjectSelection'
+import { riskLevelLabels } from '@/lib/riskLevelLabels'
 
 type Entity = EntityPage['entities'][number]
-type RiskSeverity = NonNullable<Entity['riskSeverity']>
 type Cursor = { next?: string; prev?: string }
-
-const riskSeverityLabels: Record<RiskSeverity, string> = {
-  critical: 'Critical',
-  high: 'High',
-  elevated: 'Elevated',
-  relevant: 'Relevant',
-}
 
 const {
   projectPage,
@@ -225,7 +218,7 @@ function changeProjectPage(cursor: Cursor) {
               </TableCell>
               <TableCell class="px-4 py-3">
                 <Badge v-if="entity.riskSeverity" :variant="entity.riskSeverity">
-                  {{ riskSeverityLabels[entity.riskSeverity] }}
+                  {{ riskLevelLabels[entity.riskSeverity] }}
                 </Badge>
                 <span v-else class="text-muted-foreground">—</span>
               </TableCell>
