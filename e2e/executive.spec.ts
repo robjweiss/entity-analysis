@@ -276,6 +276,9 @@ test('shows loading and error states without inventing counts', async ({ page })
 })
 
 test('links to Risk Breakdown without transferring the current project', async ({ page }) => {
+  await page.route('**/api/risk-categories', (route) =>
+    route.fulfill({ json: { categories: [{ id: 'sanctions', label: 'Sanctions' }] } }),
+  )
   await page.goto('/executive')
   await expect(page.getByTestId('project-total')).toBeVisible()
   await page.getByRole('link', { name: 'Go to Risk Breakdown' }).click()
