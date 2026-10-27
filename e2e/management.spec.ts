@@ -10,10 +10,20 @@ const detailEntity = {
   riskSeverity: 'critical',
 }
 
+const compactPreviewFactors = [
+  {
+    id: 'factor-one',
+    label:
+      'Indirect Exports of Critical Components in USA Bureau of Industry and Security (BIS) Common High Priority Items List through a product-relevant supplier network associated with an entity subject to regulatory action',
+  },
+  { id: 'factor-two', label: 'Second complete risk factor label for the detail sheet' },
+  { id: 'factor-three', label: 'Third complete risk factor label for the detail sheet' },
+]
+
 async function expectEntityLabels(page: Page, labels: string[]) {
   const rows = page.locator('[data-testid^="priority-queue-entity-"]')
   await expect(rows).toHaveCount(labels.length)
-  await expect(rows.locator('button')).toHaveText(labels)
+  await expect(rows.locator('button[aria-label^="Review risk details for"]')).toHaveText(labels)
   await expect(page.getByTestId('priority-queue-count')).toHaveText(
     `${labels.length} ${labels.length === 1 ? 'entity' : 'entities'} on this page`,
   )
@@ -306,5 +316,94 @@ test.describe('Management entity risk details', () => {
     await expect(page.getByRole('dialog')).toBeHidden()
     await openDetails.click()
     await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
+  })
+
+  test('keeps the compact preview within desktop table widths and reveals all factors', async ({
+    page,
+  }) => {
+    await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith('/entities/synthetic-entity')) {
+        await route.fulfill({ json: { riskFactors: compactPreviewFactors, riskChanges: [] } })
+      } else if (url.pathname.endsWith('/entities')) {
+        await route.fulfill({
+          json: {
+            entities: [
+              {
+                ...detailEntity,
+                label: 'An extraordinarily long entity label intended to exercise table sizing',
+                riskCategories: [
+                  {
+                    id: 'long-category',
+                    label:
+                      'An extraordinarily long risk category label intended to exercise table sizing',
+                  },
+                ],
+                riskFactors: compactPreviewFactors,
+              },
+            ],
+          },
+        })
+      } else {
+        await route.fulfill({
+          json: { projects: [{ id: 'synthetic-project', label: 'Synthetic review' }] },
+        })
+      }
+    })
+
+    for (const width of [1394, 1024]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('/management')
+      const table = page.getByRole('table', { name: 'Risk breakdown entities' })
+      await expect(table).toBeVisible()
+      const noHorizontalOverflow = await table.evaluate((element) => {
+        const container = element.parentElement!
+        return container.scrollWidth <= container.clientWidth
+      })
+      expect(noHorizontalOverflow, `table overflows at ${width}px`).toBe(true)
+
+      const factorsCell = page.getByTestId('priority-queue-risk-factors')
+      await expect(factorsCell.locator('span.truncate')).toHaveText(compactPreviewFactors[0]!.label)
+      const truncated = await factorsCell
+        .locator('span.truncate')
+        .evaluate((element) => element.scrollWidth > element.clientWidth)
+      expect(truncated, `factor preview is not truncated at ${width}px`).toBe(true)
+      await expect(factorsCell.getByRole('button', { name: /View all 3 risk factors/ })).toHaveText(
+        '+2 more',
+      )
+      await factorsCell.getByRole('button', { name: /View all 3 risk factors/ }).focus()
+      await page.keyboard.press('Enter')
+      const dialog = page.getByRole('dialog')
+      for (const factor of compactPreviewFactors) await expect(dialog).toContainText(factor.label)
+      await page.keyboard.press('Escape')
+    }
+  })
+
+  test('shows View details for one factor and a dash when factors are empty', async ({ page }) => {
+    await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith('/entities')) {
+        await route.fulfill({
+          json: {
+            entities: [
+              { ...detailEntity, id: 'single-factor', riskFactors: [compactPreviewFactors[0]] },
+              { ...detailEntity, id: 'no-factors', riskFactors: [] },
+            ],
+          },
+        })
+      } else if (url.pathname.endsWith('/entities/')) {
+        await route.fulfill({ json: { riskFactors: [], riskChanges: [] } })
+      } else {
+        await route.fulfill({
+          json: { projects: [{ id: 'synthetic-project', label: 'Synthetic review' }] },
+        })
+      }
+    })
+    await page.goto('/management')
+    const rows = page.locator('[data-testid^="priority-queue-entity-"]')
+    await expect(rows.nth(0).getByRole('button', { name: /View all 1 risk factors/ })).toHaveText(
+      'View details',
+    )
+    await expect(rows.nth(1).getByTestId('priority-queue-risk-factors')).toHaveText('—')
   })
 })
