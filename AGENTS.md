@@ -11,6 +11,12 @@
 - If the call fails, response parsing rejects the live payload, or the parsed data is unusable, use direct HTTP calls to the Sayari API from the BFF instead. Parse the wire response into narrow application types and add tests for the observed response shape; do not ship a temporary debug route.
 - Keep credentials and access tokens server-side. Never expose them through a debug route or browser response.
 
+## Worktrees
+
+- Run your own dev server as needed for both client and wbff and tear it down when done
+- Other worktrees may be running servers at the same time, check first and wait or use different ports
+- After all work is complete ask for approval to merge changes into master and to clean up the worktree
+
 ## Commits
 
 - Before starting work that spans multiple concerns or is likely to need multiple commits, inspect the scope and propose a commit plan. For each commit, state its purpose and the main changes it will contain. Get the user's approval of the plan before implementation. A small, focused task can use a single commit without a separate plan.
