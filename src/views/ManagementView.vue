@@ -173,13 +173,17 @@ function clearFilters() {
         >
           No entities match these filters.
         </p>
-        <Table v-else-if="entityPage" class="min-w-[44rem] text-left">
+        <Table v-else-if="entityPage" class="min-w-[44rem] table-fixed text-left">
           <TableCaption class="sr-only">Risk breakdown entities</TableCaption>
           <TableHeader class="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
             <TableRow>
-              <TableHead scope="col" class="px-4 py-3">Entity</TableHead>
-              <TableHead scope="col" class="px-4 py-3">Risk severity</TableHead>
-              <TableHead scope="col" class="px-4 py-3">Risk categories</TableHead>
+              <TableHead scope="col" class="w-56 px-4 py-3">Entity</TableHead>
+              <TableHead scope="col" class="w-32 whitespace-normal px-4 py-3"
+                >Risk severity</TableHead
+              >
+              <TableHead scope="col" class="w-40 whitespace-normal px-4 py-3"
+                >Risk categories</TableHead
+              >
               <TableHead scope="col" class="px-4 py-3">Risk factors</TableHead>
             </TableRow>
           </TableHeader>
@@ -193,7 +197,7 @@ function clearFilters() {
                 <Button
                   type="button"
                   variant="link"
-                  class="h-auto p-0 font-medium"
+                  class="h-auto max-w-full justify-start whitespace-normal p-0 text-left font-medium [overflow-wrap:anywhere]"
                   :aria-label="`Review risk details for ${entity.label}`"
                   @click="selectedEntity = entity"
                 >
@@ -212,24 +216,31 @@ function clearFilters() {
                     v-for="category in entity.riskCategories"
                     :key="category.id"
                     variant="muted"
+                    class="max-w-full whitespace-normal [overflow-wrap:anywhere]"
                   >
                     {{ category.label }}
                   </Badge>
                 </span>
               </TableCell>
               <TableCell class="px-4 py-3" data-testid="priority-queue-risk-factors">
-                <span v-if="entity.riskFactors.length" class="flex flex-wrap gap-1.5">
-                  <Badge
-                    v-for="factor in entity.riskFactors.slice(0, 2)"
-                    :key="factor.id"
-                    variant="muted"
-                  >
-                    {{ factor.label }}
+                <div v-if="entity.riskFactors.length" class="grid min-w-0 gap-1.5">
+                  <Badge variant="muted" class="min-w-0 max-w-full justify-self-start">
+                    <span class="truncate">{{ entity.riskFactors[0]?.label }}</span>
                   </Badge>
-                  <span v-if="entity.riskFactors.length > 2" class="text-muted-foreground">
-                    +{{ entity.riskFactors.length - 2 }} more
-                  </span>
-                </span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    class="h-auto justify-self-start p-0 text-muted-foreground"
+                    :aria-label="`View all ${entity.riskFactors.length} risk factors for ${entity.label}`"
+                    @click="selectedEntity = entity"
+                  >
+                    {{
+                      entity.riskFactors.length > 1
+                        ? `+${entity.riskFactors.length - 1} more`
+                        : 'View details'
+                    }}
+                  </Button>
+                </div>
                 <span v-else class="text-muted-foreground">—</span>
               </TableCell>
             </TableRow>

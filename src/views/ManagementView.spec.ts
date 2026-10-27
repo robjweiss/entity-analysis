@@ -152,7 +152,12 @@ describe('ManagementView', () => {
     )
   })
 
-  it('summarizes risk factors beyond the first two', async () => {
+  it.each([
+    { count: 0, expected: '—' },
+    { count: 1, expected: 'SanctionedView details' },
+    { count: 2, expected: 'Sanctioned+1 more' },
+    { count: 3, expected: 'Sanctioned+2 more' },
+  ])('shows a compact preview for $count risk factors', async ({ count, expected }) => {
     mockApi({
       entities: [
         {
@@ -161,14 +166,25 @@ describe('ManagementView', () => {
             { id: 'sanctioned', label: 'Sanctioned' },
             { id: 'export_controls', label: 'Export controls' },
             { id: 'forced_labor', label: 'Forced labor' },
-          ],
+          ].slice(0, count),
         },
       ],
     })
     const wrapper = mount(ManagementView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="priority-queue-risk-factors"]').text()).toContain('+1 more')
+    expect(wrapper.get('[data-testid="priority-queue-risk-factors"]').text()).toBe(expected)
+  })
+
+  it('opens the existing detail sheet from the risk factor preview', async () => {
+    const fetchMock = mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="priority-queue-risk-factors"] button').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities/entity-1')
   })
 
   it('keeps country codes out of the entity list', async () => {
