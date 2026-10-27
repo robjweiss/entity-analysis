@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
-import { NativeSelect } from '@/components/ui/native-select'
+import ProjectPicker from '@/components/ProjectPicker.vue'
 import {
   Sheet,
   SheetContent,
@@ -24,12 +24,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { getProjectEntityDetail, listProjectEntities, listProjects } from '@/api/projects'
-import type { EntityDetail, EntityPage, ProjectPage } from '@shared/api/projects'
+import { getProjectEntityDetail, listProjectEntities } from '@/api/projects'
+import type { EntityDetail, EntityPage } from '@shared/api/projects'
+import { useProjectSelection } from '@/composables/useProjectSelection'
 
-type Cursor = { next?: string; prev?: string }
 type Entity = EntityPage['entities'][number]
 type RiskSeverity = NonNullable<Entity['riskSeverity']>
+type Cursor = { next?: string; prev?: string }
 
 const riskSeverityLabels: Record<RiskSeverity, string> = {
   critical: 'Critical',
@@ -38,11 +39,13 @@ const riskSeverityLabels: Record<RiskSeverity, string> = {
   relevant: 'Relevant',
 }
 
-const projectPage = ref<ProjectPage>()
-const projectCursor = ref<Cursor>({})
-const selectedProjectId = ref('')
-const projectLoading = ref(false)
-const projectError = ref('')
+const {
+  projectPage,
+  projectPagination: projectCursor,
+  selectedProjectId,
+  projectLoading,
+  projectError,
+} = useProjectSelection()
 
 const name = ref('')
 const country = ref('')
@@ -62,29 +65,6 @@ const pageCountLabel = computed(() => {
   const count = entityPage.value?.entities.length ?? 0
   return `${count} ${count === 1 ? 'entity' : 'entities'} on this page`
 })
-
-watch(
-  projectCursor,
-  async (cursor, _old, onCleanup) => {
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    projectLoading.value = true
-    projectError.value = ''
-    projectPage.value = undefined
-    selectedProjectId.value = ''
-    try {
-      const page = await listProjects(cursor, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      projectPage.value = page
-      selectedProjectId.value = page.projects[0]?.id ?? ''
-    } catch (error) {
-      if (!controller.signal.aborted) projectError.value = (error as Error).message
-    } finally {
-      if (!controller.signal.aborted) projectLoading.value = false
-    }
-  },
-  { immediate: true },
-)
 
 watch([selectedProjectId, filters], () => {
   entityCursor.value = {}
@@ -168,43 +148,14 @@ function clearFilters() {
 
     <Card class="gap-0 py-0">
       <CardContent class="grid gap-3 py-4">
-        <label class="grid gap-1.5 text-sm font-medium">
-          Project
-          <NativeSelect
-            v-model="selectedProjectId"
-            data-testid="priority-queue-project"
-            :disabled="projectLoading || !projectPage?.projects.length"
-          >
-            <option v-for="project in projectPage?.projects" :key="project.id" :value="project.id">
-              {{ project.label }}
-            </option>
-          </NativeSelect>
-        </label>
-        <p v-if="projectLoading" role="status">Loading projects…</p>
-        <Alert v-else-if="projectError" variant="destructive">
-          <AlertDescription>{{ projectError }}</AlertDescription>
-        </Alert>
-        <p v-else-if="!projectPage?.projects.length" class="text-sm text-muted-foreground">
-          No projects available on this page.
-        </p>
-        <div v-if="projectPage?.next || projectPage?.prev" class="flex gap-3">
-          <Button
-            type="button"
-            size="sm"
-            :disabled="!projectPage.prev"
-            @click="projectCursor = { prev: projectPage.prev }"
-          >
-            Previous projects
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            :disabled="!projectPage.next"
-            @click="projectCursor = { next: projectPage.next }"
-          >
-            Next projects
-          </Button>
-        </div>
+        <ProjectPicker
+          v-model="selectedProjectId"
+          :page="projectPage"
+          :loading="projectLoading"
+          :error="projectError"
+          test-id="priority-queue-project"
+          @pagination="projectCursor = $event"
+        />
 
         <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters">
           <label class="grid gap-1.5 text-sm font-medium sm:col-span-3">

@@ -5,12 +5,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Progress } from '@/components/ui/progress'
-import { getProjectExposure, getProjectRiskChanges, listProjects } from '@/api/projects'
-import type { ProjectExposure, ProjectPage, ProjectRiskChanges } from '@shared/api/projects'
+import ProjectPicker from '@/components/ProjectPicker.vue'
+import { getProjectExposure, getProjectRiskChanges } from '@/api/projects'
+import type { ProjectExposure, ProjectRiskChanges } from '@shared/api/projects'
+import { useProjectSelection } from '@/composables/useProjectSelection'
 
-type ProjectPagination = { next?: string; prev?: string }
 type Category = keyof ProjectExposure['categories']
 
 const themes: { key: Category; label: string }[] = [
@@ -20,11 +20,8 @@ const themes: { key: Category; label: string }[] = [
   { key: 'adverseMedia', label: 'Adverse media' },
 ]
 
-const projectPage = ref<ProjectPage>()
-const projectPagination = ref<ProjectPagination>({})
-const selectedProjectId = ref('')
-const projectLoading = ref(false)
-const projectError = ref('')
+const { projectPage, projectPagination, selectedProjectId, projectLoading, projectError } =
+  useProjectSelection()
 
 const exposure = ref<ProjectExposure>()
 const changes = ref<ProjectRiskChanges>()
@@ -120,29 +117,6 @@ async function showMore() {
   }
 }
 
-watch(
-  projectPagination,
-  async (pagination, _old, onCleanup) => {
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    projectLoading.value = true
-    projectError.value = ''
-    projectPage.value = undefined
-    selectedProjectId.value = ''
-    try {
-      const page = await listProjects(pagination, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      projectPage.value = page
-      selectedProjectId.value = page.projects[0]?.id ?? ''
-    } catch (error) {
-      if (!controller.signal.aborted) projectError.value = (error as Error).message
-    } finally {
-      if (!controller.signal.aborted) projectLoading.value = false
-    }
-  },
-  { immediate: true },
-)
-
 watch(selectedProjectId, (projectId, _old, onCleanup) => {
   const controller = new AbortController()
   activeController = controller
@@ -194,48 +168,15 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
     <section aria-label="Project selection">
       <Card>
         <CardContent class="grid gap-3">
-          <label class="grid gap-1.5 text-sm font-medium">
-            Project
-            <NativeSelect
-              v-model="selectedProjectId"
-              data-testid="exposure-project"
-              :disabled="projectLoading || !projectPage?.projects.length"
-              class="w-full"
-            >
-              <NativeSelectOption
-                v-for="project in projectPage?.projects"
-                :key="project.id"
-                :value="project.id"
-              >
-                {{ project.label }}
-              </NativeSelectOption>
-            </NativeSelect>
-          </label>
-          <p v-if="projectLoading" role="status">Loading projects…</p>
-          <Alert v-else-if="projectError" variant="destructive">
-            <AlertDescription>{{ projectError }}</AlertDescription>
-          </Alert>
-          <p v-else-if="!projectPage?.projects.length" class="text-sm text-muted-foreground">
-            No projects available on this page.
-          </p>
-          <div v-if="projectPage?.next || projectPage?.prev" class="flex gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="!projectPage.prev"
-              @click="projectPagination = { prev: projectPage.prev }"
-            >
-              Previous projects
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="!projectPage.next"
-              @click="projectPagination = { next: projectPage.next }"
-            >
-              Next projects
-            </Button>
-          </div>
+          <ProjectPicker
+            v-model="selectedProjectId"
+            :page="projectPage"
+            :loading="projectLoading"
+            :error="projectError"
+            test-id="exposure-project"
+            button-variant="outline"
+            @pagination="projectPagination = $event"
+          />
         </CardContent>
       </Card>
     </section>

@@ -378,6 +378,33 @@ describe('ExecutiveView', () => {
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/projects?next=cursor')).toBe(true)
   })
 
+  it('selects the first project returned on a newly loaded page', async () => {
+    const fetchMock = mockApi({
+      projects: { ...projects, next: 'cursor' },
+    })
+    const originalFetch = fetchMock.getMockImplementation()!
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    fetchMock.mockImplementation((input) =>
+      input.includes('?next=')
+        ? Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ projects: [{ id: 'project-3', label: 'Next project' }] }),
+          })
+        : originalFetch(input),
+    )
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next projects')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="exposure-project"]').element).toHaveProperty(
+      'value',
+      'project-3',
+    )
+  })
+
   it.each(['projects', 'exposure', 'changes'])(
     'reports a %s API error without presenting an empty state',
     async (error) => {
