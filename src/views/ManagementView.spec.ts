@@ -14,6 +14,8 @@ const entity: EntityPage['entities'][number] = {
   riskSeverity: 'critical',
 }
 const entities = { entities: [entity] }
+type FetchResponse = { ok: boolean; json: () => Promise<object> }
+type FetchMock = (input: string, init?: { signal?: AbortSignal }) => Promise<FetchResponse>
 const detail = {
   riskFactors: [
     {
@@ -616,4 +618,208 @@ describe('ManagementView', () => {
 
     expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load project entities.')
   })
+
+  it('cancels the pending list request when a project change starts a new query', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<FetchMock>((input: string, _init?: { signal?: AbortSignal }) =>
+      input.includes('/entities')
+        ? pending.promise
+        : Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                projects: [
+                  { id: 'project-1', label: 'First' },
+                  { id: 'project-2', label: 'Second' },
+                ],
+              }),
+          }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    const listRequest = fetchMock.mock.calls.find(([url]) => url.includes('/entities'))
+    await wrapper.get('[data-testid="priority-queue-project"]').setValue('project-2')
+    await flushPromises()
+
+    expect(listRequest?.[1]?.signal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { outcome: 'success', ok: true },
+    { outcome: 'failure', ok: false },
+  ])('ignores a stale list $outcome after a project change', async ({ ok }) => {
+    const stale = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<FetchMock>((input: string) => {
+      if (input.endsWith('/project-1/entities')) return stale.promise
+      if (input.endsWith('/project-2/entities')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ entities: [{ ...entity, label: 'Current entity' }] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            projects: [
+              { id: 'project-1', label: 'First' },
+              { id: 'project-2', label: 'Second' },
+            ],
+          }),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-project"]').setValue('project-2')
+    await flushPromises()
+    stale.resolve({
+      ok,
+      json: () =>
+        Promise.resolve(
+          ok
+            ? { entities: [{ ...entity, label: 'Stale entity' }] }
+            : { error: { message: 'Stale error.' } },
+        ),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Current entity')
+    expect(wrapper.text()).not.toContain('Stale error.')
+  })
+
+  it('aborts a pending entity list request when the view unmounts', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<FetchMock>((input: string, _init?: { signal?: AbortSignal }) =>
+      input.includes('/entities')
+        ? pending.promise
+        : Promise.resolve({ ok: true, json: () => Promise.resolve(projects) }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    const listRequest = fetchMock.mock.calls.find(([url]) => url.includes('/entities'))
+
+    wrapper.unmount()
+
+    expect(listRequest?.[1]?.signal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { outcome: 'success', ok: true },
+    { outcome: 'failure', ok: false },
+  ])('ignores a stale filter $outcome after a newer filter request succeeds', async ({ ok }) => {
+    const stale = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<FetchMock>((input: string) => {
+      if (input.includes('name=current')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ entities: [{ ...entity, label: 'Current entity' }] }),
+        })
+      }
+      if (input.includes('name=stale')) return stale.promise
+      if (input.endsWith('/entities'))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(entities) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(projects) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('stale')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('current')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    stale.resolve({
+      ok,
+      json: () =>
+        Promise.resolve(
+          ok
+            ? { entities: [{ ...entity, label: 'Stale entity' }] }
+            : { error: { message: 'Stale error.' } },
+        ),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Current entity')
+    expect(wrapper.text()).not.toContain('Stale entity')
+    expect(wrapper.text()).not.toContain('Stale error.')
+  })
+
+  it.each([
+    { outcome: 'success', ok: true },
+    { outcome: 'failure', ok: false },
+  ])('ignores a stale pagination $outcome after filters change', async ({ ok }) => {
+    const stale = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const fetchMock = vi.fn<FetchMock>((input: string) => {
+      if (input.includes('name=current'))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ entities: [{ ...entity, label: 'Current entity' }] }),
+        })
+      if (input.includes('next=next-page')) return stale.promise
+      if (input.includes('/entities'))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...entities, next: 'next-page' }),
+        })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(projects) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next entities')!
+      .trigger('click')
+    await flushPromises()
+    // Applying filters while the page request is pending starts a newer list query.
+    await wrapper.get('[data-testid="priority-queue-search"]').setValue('current')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    stale.resolve({
+      ok,
+      json: () =>
+        Promise.resolve(
+          ok
+            ? { entities: [{ ...entity, label: 'Stale entity' }] }
+            : { error: { message: 'Stale pagination error.' } },
+        ),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Current entity')
+    expect(wrapper.text()).not.toContain('Stale entity')
+    expect(wrapper.text()).not.toContain('Stale pagination error.')
+  })
+
+  it.each(['filter', 'page'])(
+    'closes selected entity details when the list changes by %s',
+    async (change) => {
+      mockApi({ ...entities, next: 'next-page' })
+      const wrapper = mount(ManagementView)
+      await flushPromises()
+      await wrapper
+        .get('button[aria-label="Review risk details for Example supplier"]')
+        .trigger('click')
+      await flushPromises()
+      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+
+      if (change === 'filter') {
+        await wrapper.get('[data-testid="priority-queue-search"]').setValue('supplier')
+        await wrapper.get('form').trigger('submit')
+      } else {
+        await wrapper
+          .findAll('button')
+          .find((button) => button.text() === 'Next entities')!
+          .trigger('click')
+      }
+
+      expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-hidden')).toBe(
+        'true',
+      )
+    },
+  )
 })

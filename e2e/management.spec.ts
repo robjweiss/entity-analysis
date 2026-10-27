@@ -118,7 +118,10 @@ test.describe('Management with Sony fixture data', () => {
     const filtered = sonyFixture.entities.initial.entities.filter((entity) =>
       entity.riskCategories.some(({ id }) => id === 'sanctions'),
     )
-    await expectEntityLabels(page, filtered.map(({ label }) => label))
+    await expectEntityLabels(
+      page,
+      filtered.map(({ label }) => label),
+    )
     expect(entityRequests.at(-1)?.searchParams.get('riskCategory')).toBe('sanctions')
 
     await page.getByRole('button', { name: 'Clear filters' }).click()
@@ -147,13 +150,57 @@ test.describe('Management with Sony fixture data', () => {
 
     await page.goto('/management')
     await expectEntityLabels(page, [first.label])
-    await page.getByRole('button', { name: 'Next entities' }).click()
+    const nextEntities = page.getByRole('button', { name: 'Next entities' })
+    await nextEntities.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }),
+    )
+    await nextEntities.click()
     await expectEntityLabels(page, [second.label])
     expect(entityRequests.at(-1)?.searchParams.get('next')).toBe('second-cursor')
 
-    await page.getByRole('button', { name: 'Previous entities' }).click()
+    const previousEntities = page.getByRole('button', { name: 'Previous entities' })
+    await previousEntities.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }),
+    )
+    await previousEntities.click()
     await expectEntityLabels(page, [first.label])
     expect(entityRequests.at(-1)?.searchParams.get('prev')).toBe('first-cursor')
+  })
+
+  test('applies normalized filters from a later entity page without reusing its cursor', async ({
+    page,
+  }) => {
+    const first = sonyFixture.entities.initial.entities[0]!
+    const second = sonyFixture.entities.initial.entities[1]!
+    await page.route(/\/api\/projects\/[^/]+\/entities(?:\?.*)?$/, async (route) => {
+      const url = new URL(route.request().url())
+      entityRequests.push(url)
+      if (url.searchParams.has('next')) {
+        await route.fulfill({ json: { entities: [second], prev: 'first-cursor' } })
+      } else if (url.searchParams.has('name')) {
+        await route.fulfill({ json: sonyFixture.entities.byName })
+      } else {
+        await route.fulfill({ json: { entities: [first], next: 'second-cursor' } })
+      }
+    })
+
+    await page.goto('/management')
+    const nextEntities = page.getByRole('button', { name: 'Next entities' })
+    await nextEntities.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }),
+    )
+    await nextEntities.click()
+    await expectEntityLabels(page, [second.label])
+    await page.getByTestId('priority-queue-search').fill(' SK hynix ')
+    await page.getByRole('button', { name: 'Apply filters' }).click()
+
+    await expectEntityLabels(
+      page,
+      sonyFixture.entities.byName.entities.map(({ label }) => label),
+    )
+    expect(entityRequests.at(-1)?.searchParams.get('name')).toBe('SK hynix')
+    expect(entityRequests.at(-1)?.searchParams.has('next')).toBe(false)
+    expect(entityRequests.at(-1)?.searchParams.has('prev')).toBe(false)
   })
 })
 

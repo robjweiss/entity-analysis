@@ -18,14 +18,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { listProjectEntities } from '@/api/projects'
 import type { EntityPage } from '@shared/api/projects'
 import { useProjectSelection } from '@/composables/useProjectSelection'
+import { useProjectEntities } from '@/composables/useProjectEntities'
 import { riskLevelLabels } from '@/lib/riskLevelLabels'
+import { emptyProjectEntityFilters } from '@/lib/projectEntityFilters'
 
 type Entity = EntityPage['entities'][number]
-type Cursor = { next?: string; prev?: string }
-
 const {
   projectPage,
   projectPagination: projectCursor,
@@ -34,21 +33,11 @@ const {
   projectError,
 } = useProjectSelection()
 
-const draftFilters = ref({ name: '', country: '', riskCategory: '' })
-const filters = ref({ name: '', country: '', riskCategory: '' })
-const entityPage = ref<EntityPage>()
-const entityCursor = ref<Cursor>({})
-const entityLoading = ref(false)
-const entityError = ref('')
+const { entityPage, entityLoading, entityError, applyFilters, changePage } =
+  useProjectEntities(selectedProjectId)
 
+const draftFilters = ref(emptyProjectEntityFilters())
 const selectedEntity = ref<Entity>()
-const projectModel = computed({
-  get: () => selectedProjectId.value,
-  set: (projectId: string) => {
-    selectedProjectId.value = projectId
-    entityCursor.value = {}
-  },
-})
 const detailOpen = computed({
   get: () => Boolean(selectedEntity.value),
   set: (open: boolean) => {
@@ -62,51 +51,16 @@ const pageCountLabel = computed(() => {
 })
 
 watch(
-  [selectedProjectId, filters, entityCursor],
-  async (_values, _old, onCleanup) => {
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    selectedEntity.value = undefined
-    entityPage.value = undefined
-    entityError.value = ''
-    if (!selectedProjectId.value) {
-      entityLoading.value = false
-      return
-    }
-    entityLoading.value = true
-    try {
-      const page = await listProjectEntities(
-        selectedProjectId.value,
-        { ...filters.value, ...entityCursor.value },
-        { signal: controller.signal },
-      )
-      if (!controller.signal.aborted) entityPage.value = page
-    } catch (error) {
-      if (!controller.signal.aborted) entityError.value = (error as Error).message
-    } finally {
-      if (!controller.signal.aborted) entityLoading.value = false
-    }
+  entityPage,
+  (page) => {
+    if (!page) selectedEntity.value = undefined
   },
-  { immediate: true },
+  { flush: 'sync' },
 )
 
-function applyFilters() {
-  filters.value = {
-    name: draftFilters.value.name.trim(),
-    country: draftFilters.value.country.trim().toUpperCase(),
-    riskCategory: draftFilters.value.riskCategory.trim(),
-  }
-  entityCursor.value = {}
-}
-
 function clearFilters() {
-  draftFilters.value = { name: '', country: '', riskCategory: '' }
-  applyFilters()
-}
-
-function changeProjectPage(cursor: Cursor) {
-  projectCursor.value = cursor
-  entityCursor.value = {}
+  draftFilters.value = emptyProjectEntityFilters()
+  applyFilters(draftFilters.value)
 }
 </script>
 
@@ -122,15 +76,15 @@ function changeProjectPage(cursor: Cursor) {
     <Card class="gap-0 py-0">
       <CardContent class="grid gap-3 py-4">
         <ProjectPicker
-          v-model="projectModel"
+          v-model="selectedProjectId"
           :page="projectPage"
           :loading="projectLoading"
           :error="projectError"
           test-id="priority-queue-project"
-          @pagination="changeProjectPage"
+          @pagination="projectCursor = $event"
         />
 
-        <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters">
+        <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="applyFilters(draftFilters)">
           <label class="grid gap-1.5 text-sm font-medium sm:col-span-3">
             Search entity name
             <InputGroup>
@@ -257,7 +211,7 @@ function changeProjectPage(cursor: Cursor) {
           type="button"
           size="sm"
           :disabled="!entityPage.prev"
-          @click="entityCursor = { prev: entityPage.prev }"
+          @click="changePage({ prev: entityPage.prev })"
         >
           Previous entities
         </Button>
@@ -265,7 +219,7 @@ function changeProjectPage(cursor: Cursor) {
           type="button"
           size="sm"
           :disabled="!entityPage.next"
-          @click="entityCursor = { next: entityPage.next }"
+          @click="changePage({ next: entityPage.next })"
         >
           Next entities
         </Button>
