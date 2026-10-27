@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test'
 import { sonyFixture } from './fixtures/sony.js'
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/risk-categories', (route) =>
+    route.fulfill({ json: { categories: [{ id: 'sanctions', label: 'Sanctions' }] } }),
+  )
   await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/entities')) {
@@ -34,7 +37,10 @@ const viewTransitions = views.flatMap((source) =>
 for (const { source, destination } of viewTransitions) {
   test(`navigates from ${source.title} to ${destination.title}`, async ({ page }) => {
     await page.goto(source.path)
-    await page.locator('[data-sidebar="sidebar"]').getByRole('link', { name: destination.title }).click()
+    await page
+      .locator('[data-sidebar="sidebar"]')
+      .getByRole('link', { name: destination.title })
+      .click()
     await expect(page).toHaveURL(new RegExp(`${destination.path}$`))
   })
 }

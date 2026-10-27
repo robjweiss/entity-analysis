@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import ProjectPicker from '@/components/ProjectPicker.vue'
 import EntityRiskDetailSheet from '@/components/EntityRiskDetailSheet.vue'
 import {
@@ -21,6 +22,7 @@ import {
 import { listProjectEntities } from '@/api/projects'
 import type { EntityPage } from '@shared/api/projects'
 import { useProjectSelection } from '@/composables/useProjectSelection'
+import { useRiskCategories } from '@/composables/useRiskCategories'
 import { riskLevelLabels } from '@/lib/riskLevelLabels'
 
 type Entity = EntityPage['entities'][number]
@@ -40,6 +42,8 @@ const entityPage = ref<EntityPage>()
 const entityCursor = ref<Cursor>({})
 const entityLoading = ref(false)
 const entityError = ref('')
+const { riskCategories, riskCategoriesLoading, riskCategoriesError, loadRiskCategories } =
+  useRiskCategories()
 
 const selectedEntity = ref<Entity>()
 const projectModel = computed({
@@ -149,14 +153,40 @@ function changeProjectPage(cursor: Cursor) {
               maxlength="3"
             />
           </label>
-          <label class="grid gap-1.5 text-sm font-medium">
-            Risk category ID
-            <Input
+          <div class="grid content-start gap-1.5">
+            <label for="priority-queue-category-filter" class="text-sm font-medium">
+              Risk category
+            </label>
+            <NativeSelect
+              id="priority-queue-category-filter"
               v-model="draftFilters.riskCategory"
               data-testid="priority-queue-category-filter"
-              placeholder="sanctions"
-            />
-          </label>
+              :disabled="
+                riskCategoriesLoading || riskCategoriesError !== '' || !riskCategories.length
+              "
+            >
+              <NativeSelectOption value="">All risk categories</NativeSelectOption>
+              <NativeSelectOption
+                v-for="category in riskCategories"
+                :key="category.id"
+                :value="category.id"
+              >
+                {{ category.label }}
+              </NativeSelectOption>
+            </NativeSelect>
+            <p v-if="riskCategoriesLoading" role="status" class="text-sm text-muted-foreground">
+              Loading risk categories…
+            </p>
+            <div v-else-if="riskCategoriesError" role="alert" class="text-sm text-destructive">
+              <p>{{ riskCategoriesError }}</p>
+              <Button type="button" size="sm" variant="outline" @click="loadRiskCategories">
+                Retry loading categories
+              </Button>
+            </div>
+            <p v-else-if="!riskCategories.length" class="text-sm text-muted-foreground">
+              No risk categories available.
+            </p>
+          </div>
           <div class="flex items-end gap-3">
             <Button type="submit" size="sm">Apply filters</Button>
             <Button type="button" size="sm" variant="ghost" @click="clearFilters">

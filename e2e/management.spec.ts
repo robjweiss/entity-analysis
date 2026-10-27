@@ -24,6 +24,16 @@ test.describe('Management with Sony fixture data', () => {
 
   test.beforeEach(async ({ page }) => {
     entityRequests.length = 0
+    await page.route('**/api/risk-categories', (route) =>
+      route.fulfill({
+        json: {
+          categories: [
+            { id: 'sanctions', label: 'Sanctions' },
+            { id: 'no-match', label: 'No matching entities' },
+          ],
+        },
+      }),
+    )
     await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
       const url = new URL(route.request().url())
       const entityDetailPath = /\/api\/projects\/[^/]+\/entities\/[^/]+$/.test(url.pathname)
@@ -71,6 +81,9 @@ test.describe('Management with Sony fixture data', () => {
     await project.selectOption(sonyFixture.projectIds.alternate)
     await expect(project).toHaveValue(sonyFixture.projectIds.alternate)
     await expectEntityLabels(page, [])
+    await expect(
+      page.getByTestId('priority-queue-category-filter').locator('option[value="sanctions"]'),
+    ).toHaveText('Sanctions')
 
     await project.selectOption(sonyFixture.projectIds.sony)
     await expect(project).toHaveValue(sonyFixture.projectIds.sony)
@@ -99,6 +112,25 @@ test.describe('Management with Sony fixture data', () => {
     expect(entityRequests.at(-1)?.searchParams.has('country')).toBe(false)
   })
 
+  test('recovers from risk category loading errors without blocking entities', async ({ page }) => {
+    let attempt = 0
+    await page.route('**/api/risk-categories', (route) => {
+      attempt += 1
+      return attempt === 1
+        ? route.fulfill({ status: 503, json: { error: { message: 'Categories unavailable.' } } })
+        : route.fulfill({ json: { categories: [{ id: 'sanctions', label: 'Sanctions' }] } })
+    })
+    await page.goto('/management')
+
+    await expect(page.getByRole('alert')).toContainText('Categories unavailable.')
+    await expectEntityLabels(
+      page,
+      sonyFixture.entities.initial.entities.map(({ label }) => label),
+    )
+    await page.getByRole('button', { name: 'Retry loading categories' }).click()
+    await expect(page.getByTestId('priority-queue-category-filter')).toBeEnabled()
+  })
+
   test('filters Sony project entities by country code', async ({ page }) => {
     await page.goto('/management')
     await page.getByTestId('priority-queue-country-filter').fill('jpn')
@@ -112,13 +144,16 @@ test.describe('Management with Sony fixture data', () => {
 
   test('filters entities by risk category and clears applied filters', async ({ page }) => {
     await page.goto('/management')
-    await page.getByTestId('priority-queue-category-filter').fill('sanctions')
+    await page.getByTestId('priority-queue-category-filter').selectOption('sanctions')
     await page.getByRole('button', { name: 'Apply filters' }).click()
 
     const filtered = sonyFixture.entities.initial.entities.filter((entity) =>
       entity.riskCategories.some(({ id }) => id === 'sanctions'),
     )
-    await expectEntityLabels(page, filtered.map(({ label }) => label))
+    await expectEntityLabels(
+      page,
+      filtered.map(({ label }) => label),
+    )
     expect(entityRequests.at(-1)?.searchParams.get('riskCategory')).toBe('sanctions')
 
     await page.getByRole('button', { name: 'Clear filters' }).click()
@@ -128,6 +163,13 @@ test.describe('Management with Sony fixture data', () => {
       sonyFixture.entities.initial.entities.map(({ label }) => label),
     )
     expect(entityRequests.at(-1)?.search).toBe('')
+
+    await page.getByTestId('priority-queue-category-filter').selectOption('no-match')
+    await page.getByRole('button', { name: 'Apply filters' }).click()
+    await expectEntityLabels(page, [])
+    await expect(
+      page.getByTestId('priority-queue-category-filter').locator('option[value="sanctions"]'),
+    ).toHaveText('Sanctions')
   })
 
   test('paginates entities using next and previous cursors', async ({ page }) => {
@@ -159,6 +201,9 @@ test.describe('Management with Sony fixture data', () => {
 
 test.describe('Management entity risk details', () => {
   test.beforeEach(async ({ page }) => {
+    await page.route('**/api/risk-categories', (route) =>
+      route.fulfill({ json: { categories: [{ id: 'sanctions', label: 'Sanctions' }] } }),
+    )
     await page.route(/\/api\/projects(?:\/|\?|$)/, async (route) => {
       const url = new URL(route.request().url())
 

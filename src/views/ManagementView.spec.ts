@@ -5,6 +5,7 @@ import EntityRiskDetailSheet from '@/components/EntityRiskDetailSheet.vue'
 import type { EntityPage } from '@shared/api/projects'
 
 const projects = { projects: [{ id: 'project-1', label: 'Supplier review' }] }
+const categories = { categories: [{ id: 'sanctions', label: 'Sanctions' }] }
 const entity: EntityPage['entities'][number] = {
   id: 'entity-1',
   label: 'Example supplier',
@@ -31,11 +32,13 @@ const detail = {
 function mockApi(entityPage: object = entities, projectData: object = projects) {
   const fetchMock = vi.fn<(input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>>(
     (input) => {
-      const data = input.includes('/entities/')
-        ? detail
-        : input.includes('/entities')
-          ? entityPage
-          : projectData
+      const data = input.includes('/risk-categories')
+        ? categories
+        : input.includes('/entities/')
+          ? detail
+          : input.includes('/entities')
+            ? entityPage
+            : projectData
       return Promise.resolve({ ok: true, json: () => Promise.resolve(data) })
     },
   )
@@ -70,6 +73,40 @@ describe('ManagementView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="priority-queue-project"]').element.tagName).toBe('SELECT')
+  })
+
+  it('uses category labels as native dropdown options', async () => {
+    mockApi()
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-category-filter"]').text()).toContain(
+      'Sanctions',
+    )
+  })
+
+  it('shows category loading failure without blocking entities', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string) =>
+        Promise.resolve({
+          ok: !input.includes('/risk-categories'),
+          json: () =>
+            Promise.resolve(
+              input.includes('/risk-categories')
+                ? { error: { message: 'Categories unavailable.' } }
+                : input.includes('/entities')
+                  ? entities
+                  : projects,
+            ),
+        }),
+      ),
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Categories unavailable.')
+    expect(wrapper.get('[data-testid="priority-queue-count"]').text()).toBe('1 entity on this page')
   })
 
   it('names the risk breakdown table with a caption', async () => {
@@ -192,6 +229,48 @@ describe('ManagementView', () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities')
   })
 
+  it('keeps category options available when entity results are empty', async () => {
+    mockApi({ entities: [] })
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-category-filter"]').text()).toContain(
+      'Sanctions',
+    )
+  })
+
+  it('allows retrying after risk categories fail to load', async () => {
+    let attempts = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string) => {
+        if (input.includes('/risk-categories') && attempts++ === 0) {
+          return Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ error: { message: 'Categories unavailable.' } }),
+          })
+        }
+        const data = input.includes('/risk-categories')
+          ? categories
+          : input.includes('/entities')
+            ? entities
+            : projects
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(data) })
+      }),
+    )
+    const wrapper = mount(ManagementView)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Retry loading categories')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="priority-queue-category-filter"]').text()).toContain(
+      'Sanctions',
+    )
+  })
+
   it('does not request entities while filter values are only drafts', async () => {
     const fetchMock = mockApi()
     const wrapper = mount(ManagementView)
@@ -215,7 +294,7 @@ describe('ManagementView', () => {
     await flushPromises()
     await wrapper.get('[data-testid="priority-queue-search"]').setValue(' supplier ')
     await wrapper.get('[data-testid="priority-queue-country-filter"]').setValue(' jpn ')
-    await wrapper.get('[data-testid="priority-queue-category-filter"]').setValue(' sanctions ')
+    await wrapper.get('[data-testid="priority-queue-category-filter"]').setValue('sanctions')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
@@ -313,13 +392,15 @@ describe('ManagementView', () => {
       (input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>
     >((input) => {
       const data =
-        input === '/api/projects?next=next-project'
-          ? { projects: [{ id: 'project-2', label: 'Second project' }] }
-          : input === '/api/projects'
-            ? { projects: [{ id: 'project-1', label: 'Supplier review' }], next: 'next-project' }
-            : input.includes('/entities')
-              ? { ...entities, next: 'next-entity' }
-              : projects
+        input === '/api/risk-categories'
+          ? categories
+          : input === '/api/projects?next=next-project'
+            ? { projects: [{ id: 'project-2', label: 'Second project' }] }
+            : input === '/api/projects'
+              ? { projects: [{ id: 'project-1', label: 'Supplier review' }], next: 'next-project' }
+              : input.includes('/entities')
+                ? { ...entities, next: 'next-entity' }
+                : projects
       return Promise.resolve({ ok: true, json: () => Promise.resolve(data) })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -447,11 +528,13 @@ describe('ManagementView', () => {
           ok: !input.includes('/entities/entity-1'),
           json: () =>
             Promise.resolve(
-              input.includes('/entities/entity-1')
-                ? { error: { message: 'Unable to load risk details.' } }
-                : input.endsWith('/entities')
-                  ? entities
-                  : projects,
+              input.includes('/risk-categories')
+                ? categories
+                : input.includes('/entities/entity-1')
+                  ? { error: { message: 'Unable to load risk details.' } }
+                  : input.endsWith('/entities')
+                    ? entities
+                    : projects,
             ),
         }),
       ),
@@ -474,11 +557,13 @@ describe('ManagementView', () => {
           ok: true,
           json: () =>
             Promise.resolve(
-              input.includes('/entities/entity-1')
-                ? { riskFactors: [], riskChanges: [] }
-                : input.endsWith('/entities')
-                  ? entities
-                  : projects,
+              input.includes('/risk-categories')
+                ? categories
+                : input.includes('/entities/entity-1')
+                  ? { riskFactors: [], riskChanges: [] }
+                  : input.endsWith('/entities')
+                    ? entities
+                    : projects,
             ),
         }),
       ),
@@ -601,13 +686,15 @@ describe('ManagementView', () => {
       'fetch',
       vi.fn((input: string) =>
         Promise.resolve(
-          input.includes('/entities')
-            ? {
-                ok: false,
-                json: () =>
-                  Promise.resolve({ error: { message: 'Unable to load project entities.' } }),
-              }
-            : { ok: true, json: () => Promise.resolve(projects) },
+          input.includes('/risk-categories')
+            ? { ok: true, json: () => Promise.resolve(categories) }
+            : input.includes('/entities')
+              ? {
+                  ok: false,
+                  json: () =>
+                    Promise.resolve({ error: { message: 'Unable to load project entities.' } }),
+                }
+              : { ok: true, json: () => Promise.resolve(projects) },
         ),
       ),
     )
