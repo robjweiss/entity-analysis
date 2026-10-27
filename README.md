@@ -37,6 +37,34 @@ Vite proxies `/api` requests to the BFF on `127.0.0.1:8787`.
 
 The BFF exposes read-only, feature-specific endpoints for Sayari project data.
 
+## Run locally with Docker
+
+Docker runs both the UI and backend locally; no hosted server or local Node installation
+is required. Install Docker Desktop (or another Docker-compatible runtime) first.
+
+For convenience, after installing the project dependencies with `pnpm install`, build
+the image and start the app with these package scripts:
+
+```sh
+pnpm docker:build
+```
+
+Copy `.env.example` to `.env` and enter your own Sayari credentials as described above.
+Then start the app:
+
+```sh
+pnpm docker:run
+```
+
+Open <http://localhost:8787>. Stop it with Ctrl+C.
+
+The scripts are shortcuts; Docker commands can also be run directly. For example:
+
+```sh
+docker build -t entity-analysis:prototype .
+docker run --rm --init --name entity-analysis --env-file .env -p 127.0.0.1:8787:8787 entity-analysis:prototype
+```
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).

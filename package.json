@@ -11,6 +11,8 @@
     "dev:client": "vite",
     "dev:bff": "node --watch --env-file-if-exists=.env bff/index.ts",
     "bff": "node --env-file-if-exists=.env bff/index.ts",
+    "docker:build": "docker build -t entity-analysis:prototype .",
+    "docker:run": "docker run --rm --init --name entity-analysis --env-file .env -p 127.0.0.1:8787:8787 entity-analysis:prototype",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:unit": "vitest",

@@ -1,8 +1,15 @@
 import { createApp } from './app.ts'
+import { fileURLToPath } from 'node:url'
 
 const port = Number(process.env.PORT ?? 8787)
-const app = createApp()
+const host = process.env.HOST ?? '127.0.0.1'
+const app = createApp({
+  staticDirectory:
+    process.env.NODE_ENV === 'production'
+      ? fileURLToPath(new URL('../dist', import.meta.url))
+      : undefined,
+})
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`Sayari BFF listening on http://127.0.0.1:${port}`)
+app.listen(port, host, () => {
+  console.log(`Sayari BFF listening on http://${host}:${port}`)
 })

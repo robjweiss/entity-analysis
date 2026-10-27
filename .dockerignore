@@ -1,0 +1,18 @@
+# Only application/build inputs enter the build context. Secrets stay outside it.
+**
+!package.json
+!pnpm-lock.yaml
+!tsconfig*.json
+!*.config.ts
+!index.html
+!env.d.ts
+!src/
+!src/**
+!public/
+!public/**
+!shared/
+!shared/**
+!bff/
+!bff/**
+**/*.spec.ts
+**/.env*
