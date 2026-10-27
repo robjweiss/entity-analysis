@@ -20,6 +20,7 @@ const matchId = ref('')
 const projectLoading = ref(false)
 const entityLoading = ref(false)
 const projectError = ref('')
+const projectEntityError = ref('')
 const {
   investigation,
   loading,
@@ -40,8 +41,7 @@ watch(
   async (id, _old, onCleanup) => {
     projectEntities.value = undefined
     projectEntityId.value = ''
-    matchId.value = ''
-    projectError.value = ''
+    projectEntityError.value = ''
     entityLoading.value = false
     if (!id) return
     const controller = new AbortController()
@@ -51,7 +51,7 @@ watch(
       const page = await listProjectEntities(id, {}, { signal: controller.signal })
       if (!controller.signal.aborted) projectEntities.value = page
     } catch (requestError) {
-      if (!controller.signal.aborted) projectError.value = (requestError as Error).message
+      if (!controller.signal.aborted) projectEntityError.value = (requestError as Error).message
     } finally {
       if (!controller.signal.aborted) entityLoading.value = false
     }
@@ -61,16 +61,7 @@ watch(
 
 watch(projectEntityId, () => {
   matchId.value = ''
-  projectError.value = ''
 })
-
-watch(
-  projects,
-  (page) => {
-    projectId.value = page?.projects[0]?.id ?? ''
-  },
-  { once: true },
-)
 
 async function loadProjects() {
   const controller = new AbortController()
@@ -79,7 +70,10 @@ async function loadProjects() {
   projectError.value = ''
   try {
     const page = await listProjects({}, { signal: controller.signal })
-    if (!controller.signal.aborted) projects.value = page
+    if (!controller.signal.aborted) {
+      projects.value = page
+      projectId.value = page.projects[0]?.id ?? ''
+    }
   } catch (requestError) {
     if (!controller.signal.aborted) projectError.value = (requestError as Error).message
   } finally {
@@ -160,8 +154,10 @@ void loadProjects()
     <p v-if="loading" role="status" class="py-12 text-center text-sm text-muted-foreground">
       Loading entity investigation…
     </p>
-    <Alert v-else-if="error || projectError" variant="destructive">
-      <AlertDescription class="text-destructive">{{ error || projectError }}</AlertDescription>
+    <Alert v-else-if="error || projectError || projectEntityError" variant="destructive">
+      <AlertDescription class="text-destructive">{{
+        error || projectError || projectEntityError
+      }}</AlertDescription>
     </Alert>
     <p
       v-else-if="!investigation"

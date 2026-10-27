@@ -190,6 +190,19 @@ test('clears stale investigation data when switching resolved entities', async (
   await expect(page.getByTestId('entity-label')).toHaveText(secondMatch.label)
 })
 
+test('clears a completed investigation when switching projects', async ({ page }) => {
+  await mockProjectApis(page)
+  await page.route(`**/api/entities/${investigation.resolvedEntityId}`, (route) =>
+    route.fulfill({ json: structuredClone(initial) }),
+  )
+  await selectSonyMatch(page)
+  await expect(page.getByTestId('entity-label')).toHaveText(initial.profile.label)
+
+  await page.getByTestId('investigation-project').selectOption(sonyFixture.projectIds.alternate)
+
+  await expect(page.getByTestId('entity-label')).toHaveCount(0)
+})
+
 test('shows investigation API errors', async ({ page }) => {
   await mockProjectApis(page)
   await page.route(`**/api/entities/${investigation.resolvedEntityId}`, (route) =>

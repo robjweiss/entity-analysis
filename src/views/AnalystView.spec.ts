@@ -549,6 +549,107 @@ describe('AnalystView', () => {
     expect(wrapper.get('[data-testid="entity-label"]').text()).toBe('Investigation entity-2')
   })
 
+  it.each([
+    { ancestor: 'investigation-project', next: 'project-2' },
+    { ancestor: 'investigation-project-entity', next: '' },
+  ])('clears a completed investigation when $ancestor changes', async ({ ancestor, next }) => {
+    const wrapper = await mountInvestigationView()
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+    await wrapper.get(`[data-testid="${ancestor}"]`).setValue(next)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="entity-label"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { ancestor: 'investigation-project', next: 'project-2' },
+    { ancestor: 'investigation-project-entity', next: '' },
+  ])('aborts a pending investigation when $ancestor changes', async ({ ancestor, next }) => {
+    const pending = deferred<MockResponse>()
+    let signal: AbortSignal | undefined
+    const wrapper = await mountInvestigationView((input, init) => {
+      if (!input.endsWith('/entity-1')) return undefined
+      signal = init?.signal ?? undefined
+      return pending.promise
+    })
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await wrapper.get(`[data-testid="${ancestor}"]`).setValue(next)
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { ancestor: 'investigation-project', next: 'project-2', outcome: 'success' },
+    { ancestor: 'investigation-project', next: 'project-2', outcome: 'failure' },
+    { ancestor: 'investigation-project-entity', next: '', outcome: 'success' },
+    { ancestor: 'investigation-project-entity', next: '', outcome: 'failure' },
+  ])(
+    'ignores stale investigation results after changing $ancestor ($outcome)',
+    async ({ ancestor, next, outcome }) => {
+      const pending = deferred<MockResponse>()
+      const wrapper = await mountInvestigationView((input) =>
+        input.endsWith('/entity-1') ? pending.promise : undefined,
+      )
+      await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+      await wrapper.get(`[data-testid="${ancestor}"]`).setValue(next)
+      await flushPromises()
+      if (outcome === 'success') pending.resolve(apiResponse(investigation))
+      else pending.reject(new Error('Stale investigation failure.'))
+      await flushPromises()
+
+      expect({
+        investigation: wrapper.find('[data-testid="entity-label"]').exists(),
+        error: wrapper.find('[role="alert"]').exists(),
+        loading: wrapper.find('[role="status"]').exists(),
+      }).toEqual({ investigation: false, error: false, loading: false })
+    },
+  )
+
+  it('clears a project-entity request error when switching projects', async () => {
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/projects/project-1/entities'
+        ? apiResponse({ error: { message: 'Unable to load project entities.' } }, false)
+        : undefined,
+    )
+    expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load project entities.')
+
+    await wrapper.get('[data-testid="investigation-project"]').setValue('project-2')
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('shows a project-list request failure', async () => {
+    const wrapper = await mountInvestigationView((input) =>
+      input === '/api/projects'
+        ? apiResponse({ error: { message: 'Unable to load projects.' } }, false)
+        : undefined,
+    )
+
+    expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load projects.')
+  })
+
+  it('does not request project entities when the project list is empty', async () => {
+    const requests: string[] = []
+    await mountInvestigationView((input) => {
+      requests.push(input)
+      return input === '/api/projects' ? apiResponse({ projects: [] }) : undefined
+    })
+
+    expect(requests.some((input) => input.endsWith('/entities'))).toBe(false)
+  })
+
+  it('does not auto-select a match when the project entity page is empty', async () => {
+    const wrapper = await mountInvestigationView((input) =>
+      input.endsWith('/entities') ? apiResponse({ entities: [] }) : undefined,
+    )
+
+    expect(
+      (wrapper.get('[data-testid="investigation-entity"]').element as HTMLSelectElement).value,
+    ).toBe('')
+  })
+
   it('loads and appends more related entities when requested', async () => {
     const fetchMock = vi.fn<(input: string) => Promise<MockResponse>>((input) => {
       if (input === '/api/projects')
