@@ -54,7 +54,312 @@ const investigation = {
 
 afterEach(() => vi.unstubAllGlobals())
 
+type RequestHandler = (
+  input: string,
+  init?: RequestInit,
+) => MockResponse | Promise<MockResponse> | undefined
+
+function apiResponse(body: unknown, ok = true): MockResponse {
+  return { ok, json: () => Promise.resolve(body) }
+}
+
+function createDefaultResponse(input: string): MockResponse {
+  if (input === '/api/projects')
+    return apiResponse({
+      projects: [
+        { id: 'project-1', label: 'Review' },
+        { id: 'project-2', label: 'Alternate review' },
+      ],
+    })
+  if (input.endsWith('/entities'))
+    return apiResponse({
+      entities: [
+        {
+          id: 'project-entity-1',
+          label: 'Supplier',
+          countries: [],
+          riskCategories: [],
+          riskFactors: [],
+          matches: [
+            { id: 'entity-1', label: 'First supplier' },
+            { id: 'entity-2', label: 'Second supplier' },
+          ],
+        },
+      ],
+    })
+  if (input.includes('/relationships'))
+    return apiResponse({
+      relationships: [],
+      relationshipCount: investigation.relationshipCount,
+      nextRelationship: undefined,
+    })
+  if (input.includes('/records'))
+    return apiResponse({
+      records: [],
+      recordCount: investigation.recordCount,
+      nextRecord: undefined,
+    })
+  const entityId = input.split('/')[3] ?? 'entity-1'
+  const initial = {
+    ...structuredClone(investigation),
+    records: [{ id: 'record-1', label: 'Existing record', type: 'about' }],
+  }
+  return apiResponse({
+    ...initial,
+    profile: { ...investigation.profile, id: entityId, label: `Investigation ${entityId}` },
+  })
+}
+
+async function mountInvestigationView(handler: RequestHandler = () => undefined) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: string, init?: RequestInit) =>
+      Promise.resolve(handler(input, init) ?? createDefaultResponse(input)),
+    ),
+  )
+  const wrapper = mount(AnalystView)
+  await flushPromises()
+  await wrapper.get('[data-testid="investigation-project-entity"]').setValue('project-entity-1')
+  return wrapper
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, reject, resolve }
+}
+
 describe('AnalystView', () => {
+  it.each([
+    { kind: 'relationships', button: 'show-more-relationships', path: '/relationships' },
+    { kind: 'records', button: 'show-more-records', path: '/records' },
+  ])('aborts pending $kind pagination and ignores its later success', async ({ button, path }) => {
+    const pending = deferred<MockResponse>()
+    let pageSignal: AbortSignal | undefined
+    const wrapper = await mountInvestigationView((input, init) => {
+      if (input.includes(path)) {
+        pageSignal = init?.signal ?? undefined
+        return pending.promise
+      }
+      return undefined
+    })
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+    await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-2')
+    await flushPromises()
+    pending.resolve(
+      apiResponse({
+        relationships: [{ ...investigation.relationships[0], id: 'stale', label: 'Stale page' }],
+        relationshipCount: 99,
+        records: [{ id: 'stale', label: 'Stale page', type: 'about' }],
+        recordCount: 99,
+      }),
+    )
+    await flushPromises()
+
+    expect(pageSignal?.aborted).toBe(true)
+    expect(wrapper.get('[data-testid="entity-label"]').text()).toBe('Investigation entity-2')
+    expect(wrapper.text()).not.toContain('Stale page')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { kind: 'relationships', button: 'show-more-relationships', path: '/relationships' },
+    { kind: 'records', button: 'show-more-records', path: '/records' },
+  ])(
+    'ignores a late $kind pagination failure after switching matches',
+    async ({ button, path }) => {
+      const pending = deferred<MockResponse>()
+      const wrapper = await mountInvestigationView((input) =>
+        input.includes(path) ? pending.promise : undefined,
+      )
+      await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+      await flushPromises()
+      await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+      await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-2')
+      await flushPromises()
+      pending.resolve(apiResponse({ error: { message: 'Stale pagination failure.' } }, false))
+      await flushPromises()
+
+      expect(wrapper.get('[data-testid="entity-label"]').text()).toBe('Investigation entity-2')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    },
+  )
+
+  it.each([
+    { kind: 'relationships', button: 'show-more-relationships', path: '/relationships' },
+    { kind: 'records', button: 'show-more-records', path: '/records' },
+  ])(
+    'retains existing $kind and retries a failed page successfully',
+    async ({ kind, button, path }) => {
+      let pageRequests = 0
+      const wrapper = await mountInvestigationView((input) => {
+        if (!input.includes(path)) return undefined
+        pageRequests += 1
+        if (pageRequests === 1)
+          return apiResponse({ error: { message: 'Temporary pagination failure.' } }, false)
+        if (kind === 'relationships')
+          return apiResponse({
+            relationships: [
+              { ...investigation.relationships[0], id: 'related-2', label: 'Retried relationship' },
+            ],
+            relationshipCount: 11,
+            nextRelationship: undefined,
+          })
+        return apiResponse({
+          records: [{ id: 'record-2', label: 'Retried record', type: 'about' }],
+          recordCount: 12,
+          nextRecord: undefined,
+        })
+      })
+      await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+      await flushPromises()
+      await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[role="alert"]').text()).toBe('Temporary pagination failure.')
+
+      await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain(
+        kind === 'relationships' ? 'First Related Entity' : 'Existing record',
+      )
+      expect(wrapper.text()).toContain(
+        kind === 'relationships' ? 'Retried relationship' : 'Retried record',
+      )
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    },
+  )
+
+  it('aborts the initial projects request on unmount', async () => {
+    const pending = deferred<MockResponse>()
+    let signal: AbortSignal | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) => {
+        signal = init?.signal ?? undefined
+        return pending.promise
+      }),
+    )
+    const wrapper = mount(AnalystView)
+
+    wrapper.unmount()
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('aborts the project entities request on unmount', async () => {
+    const pending = deferred<MockResponse>()
+    let signal: AbortSignal | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (input === '/api/projects') return Promise.resolve(createDefaultResponse(input))
+        signal = init?.signal ?? undefined
+        return pending.promise
+      }),
+    )
+    const wrapper = mount(AnalystView)
+    await flushPromises()
+
+    wrapper.unmount()
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('aborts an investigation request on unmount', async () => {
+    const pending = deferred<MockResponse>()
+    let signal: AbortSignal | undefined
+    const wrapper = await mountInvestigationView((input, init) => {
+      if (!input.includes('/api/entities/')) return undefined
+      signal = init?.signal ?? undefined
+      return pending.promise
+    })
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+
+    wrapper.unmount()
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { kind: 'relationships', button: 'show-more-relationships', path: '/relationships' },
+    { kind: 'records', button: 'show-more-records', path: '/records' },
+  ])('aborts pending $kind pagination on unmount', async ({ button, path }) => {
+    const pending = deferred<MockResponse>()
+    let signal: AbortSignal | undefined
+    const wrapper = await mountInvestigationView((input, init) => {
+      if (!input.includes(path)) return undefined
+      signal = init?.signal ?? undefined
+      return pending.promise
+    })
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+    await wrapper.get(`[data-testid="${button}"]`).trigger('click')
+
+    wrapper.unmount()
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('ignores a stale project entities response after switching projects', async () => {
+    const firstPage = deferred<MockResponse>()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string) => {
+        if (input === '/api/projects') return Promise.resolve(createDefaultResponse(input))
+        if (input === '/api/projects/project-1/entities') return firstPage.promise
+        return Promise.resolve(
+          apiResponse({
+            entities: [
+              {
+                id: 'current-project-entity',
+                label: 'Current project entity',
+                countries: [],
+                riskCategories: [],
+                riskFactors: [],
+                matches: [],
+              },
+            ],
+          }),
+        )
+      }),
+    )
+    const wrapper = mount(AnalystView)
+    await flushPromises()
+    await wrapper.get('[data-testid="investigation-project"]').setValue('project-2')
+    await flushPromises()
+    firstPage.resolve(
+      apiResponse({
+        entities: [
+          {
+            id: 'stale-project-entity',
+            label: 'Stale project entity',
+            countries: [],
+            riskCategories: [],
+            riskFactors: [],
+            matches: [],
+          },
+        ],
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="investigation-project-entity"]').text()).toContain(
+      'Current project entity',
+    )
+    expect(wrapper.get('[data-testid="investigation-project-entity"]').text()).not.toContain(
+      'Stale project entity',
+    )
+  })
+
   it('shows the project and entity selectors', () => {
     vi.stubGlobal(
       'fetch',
@@ -157,6 +462,54 @@ describe('AnalystView', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toBe('Entity was not found.')
+  })
+
+  it('stops showing loading when the selected match is cleared during a request', async () => {
+    const pending = deferred<MockResponse>()
+    let investigationSignal: AbortSignal | undefined
+    const wrapper = await mountInvestigationView((input, init) => {
+      if (!input.includes('/api/entities/')) return undefined
+      investigationSignal = init?.signal ?? undefined
+      return pending.promise
+    })
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+
+    expect(wrapper.get('[role="status"]').text()).toContain('Loading entity investigation')
+
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('')
+    expect(investigationSignal?.aborted).toBe(true)
+    pending.resolve(apiResponse(investigation))
+    await flushPromises()
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('shows a pagination error', async () => {
+    const wrapper = await mountInvestigationView((input) =>
+      input.includes('/relationships')
+        ? apiResponse({ error: { message: 'Unable to load more relationships.' } }, false)
+        : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await flushPromises()
+    await wrapper.get('[data-testid="show-more-relationships"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load more relationships.')
+  })
+
+  it('does not display a stale investigation response after selecting another match', async () => {
+    const first = deferred<MockResponse>()
+    const wrapper = await mountInvestigationView((input) =>
+      input.endsWith('/entity-1') ? first.promise : undefined,
+    )
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-1')
+    await wrapper.get('[data-testid="investigation-entity"]').setValue('entity-2')
+    await flushPromises()
+    first.resolve(apiResponse(investigation))
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="entity-label"]').text()).toBe('Investigation entity-2')
   })
 
   it('loads and appends more related entities when requested', async () => {

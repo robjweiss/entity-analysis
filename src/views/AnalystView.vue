@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/native-select'
-import { getEntityInvestigation, getEntityRecords, getEntityRelationships } from '@/api/entities'
 import { listProjectEntities, listProjects } from '@/api/projects'
 import type { EntityInvestigation } from '@shared/api/entities'
 import type { EntityPage, ProjectPage } from '@shared/api/projects'
+import { useEntityInvestigation } from '@/composables/useEntityInvestigation'
 
 type RiskLevel = EntityInvestigation['risks'][number]['level']
 
@@ -24,15 +24,20 @@ const projectId = ref('')
 const projectEntities = ref<EntityPage>()
 const projectEntityId = ref('')
 const matchId = ref('')
-const investigation = ref<EntityInvestigation>()
 const projectLoading = ref(false)
 const entityLoading = ref(false)
-const loading = ref(false)
-const relationshipsLoading = ref(false)
-const relationshipsError = ref('')
-const recordsLoading = ref(false)
-const recordsError = ref('')
-const error = ref('')
+const projectError = ref('')
+const {
+  investigation,
+  loading,
+  error,
+  relationshipsLoading,
+  relationshipsError,
+  recordsLoading,
+  recordsError,
+  loadMoreRelationships,
+  loadMoreRecords,
+} = useEntityInvestigation(matchId)
 const selectedProjectEntity = computed(() =>
   projectEntities.value?.entities.find((entity) => entity.id === projectEntityId.value),
 )
@@ -53,16 +58,17 @@ watch(
     projectEntities.value = undefined
     projectEntityId.value = ''
     matchId.value = ''
-    investigation.value = undefined
-    error.value = ''
+    projectError.value = ''
+    entityLoading.value = false
     if (!id) return
     const controller = new AbortController()
     onCleanup(() => controller.abort())
     entityLoading.value = true
     try {
-      projectEntities.value = await listProjectEntities(id, {}, { signal: controller.signal })
+      const page = await listProjectEntities(id, {}, { signal: controller.signal })
+      if (!controller.signal.aborted) projectEntities.value = page
     } catch (requestError) {
-      if (!controller.signal.aborted) error.value = (requestError as Error).message
+      if (!controller.signal.aborted) projectError.value = (requestError as Error).message
     } finally {
       if (!controller.signal.aborted) entityLoading.value = false
     }
@@ -72,73 +78,8 @@ watch(
 
 watch(projectEntityId, () => {
   matchId.value = ''
-  investigation.value = undefined
-  error.value = ''
+  projectError.value = ''
 })
-
-watch(
-  matchId,
-  async (id, _old, onCleanup) => {
-    investigation.value = undefined
-    error.value = ''
-    relationshipsError.value = ''
-    recordsError.value = ''
-    if (!id) return
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    loading.value = true
-    try {
-      investigation.value = await getEntityInvestigation(id, { signal: controller.signal })
-    } catch (requestError) {
-      if (!controller.signal.aborted) error.value = (requestError as Error).message
-    } finally {
-      if (!controller.signal.aborted) loading.value = false
-    }
-  },
-  { immediate: true },
-)
-
-async function loadMoreRelationships() {
-  const current = investigation.value
-  const cursor = current?.nextRelationship
-  if (!current || !cursor || relationshipsLoading.value) return
-
-  relationshipsLoading.value = true
-  relationshipsError.value = ''
-  try {
-    const page = await getEntityRelationships(current.profile.id, cursor, {
-      signal: new AbortController().signal,
-    })
-    current.relationships.push(...page.relationships)
-    current.relationshipCount = page.relationshipCount
-    current.nextRelationship = page.nextRelationship
-  } catch (requestError) {
-    relationshipsError.value = (requestError as Error).message
-  } finally {
-    relationshipsLoading.value = false
-  }
-}
-
-async function loadMoreRecords() {
-  const current = investigation.value
-  const cursor = current?.nextRecord
-  if (!current || !cursor || recordsLoading.value) return
-
-  recordsLoading.value = true
-  recordsError.value = ''
-  try {
-    const page = await getEntityRecords(current.profile.id, cursor, {
-      signal: new AbortController().signal,
-    })
-    current.records.push(...page.records)
-    current.recordCount = page.recordCount
-    current.nextRecord = page.nextRecord
-  } catch (requestError) {
-    recordsError.value = (requestError as Error).message
-  } finally {
-    recordsLoading.value = false
-  }
-}
 
 watch(
   projects,
@@ -150,14 +91,16 @@ watch(
 
 async function loadProjects() {
   const controller = new AbortController()
+  onUnmounted(() => controller.abort())
   projectLoading.value = true
-  error.value = ''
+  projectError.value = ''
   try {
-    projects.value = await listProjects({}, { signal: controller.signal })
+    const page = await listProjects({}, { signal: controller.signal })
+    if (!controller.signal.aborted) projects.value = page
   } catch (requestError) {
-    error.value = (requestError as Error).message
+    if (!controller.signal.aborted) projectError.value = (requestError as Error).message
   } finally {
-    projectLoading.value = false
+    if (!controller.signal.aborted) projectLoading.value = false
   }
 }
 
@@ -234,8 +177,8 @@ void loadProjects()
     <p v-if="loading" role="status" class="py-12 text-center text-sm text-muted-foreground">
       Loading entity investigation…
     </p>
-    <Alert v-else-if="error" variant="destructive">
-      <AlertDescription class="text-destructive">{{ error }}</AlertDescription>
+    <Alert v-else-if="error || projectError" variant="destructive">
+      <AlertDescription class="text-destructive">{{ error || projectError }}</AlertDescription>
     </Alert>
     <p
       v-else-if="!investigation"
