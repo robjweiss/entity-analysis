@@ -577,6 +577,48 @@ describe('ExecutiveView', () => {
     expect(wrapper.text()).toContain('No risk changes returned for this period.')
   })
 
+  it('reports an empty page when a next-page cursor remains', async () => {
+    mockApi({ changes: { ...changes, changes: [], next: 'next-page' } })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No risk changes returned on this page.')
+  })
+
+  it('clears the empty-page state while a newly selected project is loading', async () => {
+    let resolveSecond!: (response: { ok: boolean; json: () => Promise<object> }) => void
+    const fetchMock = vi.fn<
+      (input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >((input) => {
+      if (input.includes('/risk-changes') && input.includes('project-2'))
+        return new Promise((resolve) => {
+          resolveSecond = resolve
+        })
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            input.includes('/risk-changes')
+              ? { ...changes, changes: [], next: undefined }
+              : input.includes('/exposure')
+                ? exposure
+                : projects,
+          ),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    await wrapper.get('[data-testid="exposure-project"]').setValue('project-2')
+
+    expect(wrapper.get('[aria-labelledby="changes-title"]').text()).not.toContain(
+      'No risk changes returned',
+    )
+
+    resolveSecond({ ok: true, json: () => Promise.resolve({ ...changes, changes: [] }) })
+    await flushPromises()
+  })
+
   it('requests both endpoints for a newly selected project', async () => {
     const fetchMock = mockApi()
     const wrapper = mount(ExecutiveView)

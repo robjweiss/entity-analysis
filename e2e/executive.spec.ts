@@ -240,6 +240,24 @@ test('reports empty risk changes without a safety verdict', async ({ page }) => 
   await expect(page.getByText('No risk changes returned for this period.')).toBeVisible()
 })
 
+test('reports an empty current page when another risk-change page is available', async ({
+  page,
+}) => {
+  await page.route(`**/api/projects/${sonyFixture.projectIds.sony}/risk-changes`, (route) =>
+    route.fulfill({
+      json: {
+        ...changes,
+        changes: [],
+        next: 'next-page',
+        hasMore: true,
+      },
+    }),
+  )
+  await page.goto('/executive')
+
+  await expect(page.getByText('No risk changes returned on this page.')).toBeVisible()
+})
+
 test('shows loading and error states without inventing counts', async ({ page }) => {
   let release!: () => void
   const pending = new Promise<void>((resolve) => {

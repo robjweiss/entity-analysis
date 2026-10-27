@@ -28,7 +28,16 @@ const { projectPage, projectPagination, selectedProjectId, projectLoading, proje
 const exposure = ref<ProjectExposure>()
 const exposureLoading = ref(false)
 const exposureError = ref('')
-const riskChanges = useProjectRiskChanges(selectedProjectId)
+const {
+  changes: riskChangeResponse,
+  loading: riskChangesLoading,
+  loadingMore: riskChangesLoadingMore,
+  error: riskChangesError,
+  moreError: riskChangesMoreError,
+  visibleChanges,
+  canShowMore,
+  showMore: showMoreRiskChanges,
+} = useProjectRiskChanges(selectedProjectId)
 
 const selectedProject = computed(() =>
   projectPage.value?.projects.find((project) => project.id === selectedProjectId.value),
@@ -193,14 +202,15 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
             </CardHeader>
             <CardContent>
               <RecentRiskChanges
-                :changes="riskChanges.changes.value"
-                :loading="riskChanges.loading.value"
-                :loading-more="riskChanges.loadingMore.value"
-                :error="riskChanges.error.value"
-                :more-error="riskChanges.moreError.value"
-                :visible-changes="riskChanges.visibleChanges.value"
-                :can-show-more="riskChanges.canShowMore.value"
-                @show-more="riskChanges.showMore"
+                :loaded="Boolean(riskChangeResponse)"
+                :has-next-page="Boolean(riskChangeResponse?.next)"
+                :loading="riskChangesLoading"
+                :loading-more="riskChangesLoadingMore"
+                :error="riskChangesError"
+                :more-error="riskChangesMoreError"
+                :visible-changes="visibleChanges"
+                :can-show-more="canShowMore"
+                @show-more="showMoreRiskChanges"
               />
             </CardContent>
           </Card>

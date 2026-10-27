@@ -10,7 +10,8 @@ const props = defineProps<{
   loading: boolean
   error: string
   moreError: string
-  changes?: { changes: ProjectRiskChange[]; next?: string }
+  loaded: boolean
+  hasNextPage: boolean
   visibleChanges: ProjectRiskChange[]
   canShowMore: boolean
   loadingMore: boolean
@@ -44,10 +45,10 @@ function dateLabel(timestamp: string) {
   <Alert v-else-if="error" variant="destructive"
     ><AlertDescription>{{ error }}</AlertDescription></Alert
   >
-  <template v-else-if="changes">
-    <p v-if="!changes.changes.length" class="text-sm text-muted-foreground">
+  <template v-else-if="loaded">
+    <p v-if="!visibleChanges.length" class="text-sm text-muted-foreground">
       {{
-        changes.next
+        hasNextPage
           ? 'No risk changes returned on this page.'
           : 'No risk changes returned for this period.'
       }}
