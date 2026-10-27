@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ExecutiveView from './ExecutiveView.vue'
 
-vi.mock('vue-router', () => ({ RouterLink: { template: '<a href="/management"><slot /></a>' } }))
-
 const projects = {
   projects: [
     { id: 'project-1', label: 'Supplier review' },
@@ -79,6 +77,14 @@ function mockApi(
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ExecutiveView', () => {
+  it('does not show the follow-up panel for a selected project', async () => {
+    mockApi()
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Follow up')
+  })
+
   it('shows the whole-project scope without implying supplier confirmation', async () => {
     mockApi()
     const wrapper = mount(ExecutiveView)

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -216,22 +214,6 @@ watch(selectedProjectId, (projectId, _old, onCleanup) => {
           </Card>
         </section>
       </div>
-
-      <section aria-labelledby="follow-up-title">
-        <Card>
-          <CardHeader>
-            <h2 id="follow-up-title" class="font-semibold">Follow up</h2>
-          </CardHeader>
-          <CardContent>
-            <p class="text-sm text-muted-foreground">
-              Open Risk Breakdown and select a project there to review entities.
-            </p>
-            <Button as-child variant="outline" class="mt-3">
-              <RouterLink to="/management">Go to Risk Breakdown</RouterLink>
-            </Button>
-          </CardContent>
-        </Card>
-      </section>
     </template>
   </section>
 </template>

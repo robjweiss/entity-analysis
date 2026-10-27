@@ -275,13 +275,9 @@ test('shows loading and error states without inventing counts', async ({ page })
   await expect(page.getByTestId('project-total')).toHaveCount(0)
 })
 
-test('links to Risk Breakdown without transferring the current project', async ({ page }) => {
-  await page.route('**/api/risk-categories', (route) =>
-    route.fulfill({ json: { categories: [{ id: 'sanctions', label: 'Sanctions' }] } }),
-  )
+test('does not show the follow-up panel for a selected project', async ({ page }) => {
   await page.goto('/executive')
   await expect(page.getByTestId('project-total')).toBeVisible()
-  await page.getByRole('link', { name: 'Go to Risk Breakdown' }).click()
 
-  await expect(page).toHaveURL(/\/management$/)
+  await expect(page.getByRole('region', { name: 'Follow up', exact: true })).toHaveCount(0)
 })
