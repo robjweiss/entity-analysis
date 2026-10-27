@@ -19,6 +19,10 @@ export const riskFactorOntologyResponseSchema = z.object({
   data: z.array(z.unknown()),
 })
 
+export const riskCategoryOntologyResponseSchema = z.object({
+  data: z.array(z.object({ categories: z.array(z.string()) })),
+})
+
 export const projectRiskFactorOntologyEntrySchema = z.object({
   id: z.string(),
   label: z.string().optional(),
