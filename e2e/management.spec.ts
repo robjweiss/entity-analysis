@@ -204,4 +204,18 @@ test.describe('Management entity risk details', () => {
 
     await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
   })
+
+  test('closes and reopens entity risk details', async ({ page }) => {
+    await page.goto('/management')
+    const openDetails = page.getByRole('button', {
+      name: 'Review risk details for Synthetic supplier',
+    })
+    await openDetails.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await openDetails.click()
+    await expect(page.getByRole('dialog').getByText('Critical')).toBeVisible()
+  })
 })

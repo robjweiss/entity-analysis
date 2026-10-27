@@ -221,3 +221,49 @@ test('shows failures when loading more relationships and records', async ({ page
   await page.getByTestId('show-more-records').click()
   await expect(page.getByText('Records unavailable.', { exact: true })).toBeVisible()
 })
+
+test('shows only the newly selected match when an earlier investigation responds late', async ({
+  page,
+}) => {
+  let releaseFirstResponse!: () => void
+  const firstResponse = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve
+  })
+  const projectEntity = structuredClone(
+    sonyFixture.entities.initial.entities.find(({ id }) => id === investigation.projectEntityId)!,
+  )
+  projectEntity.matches.push({ id: 'second-resolved-entity', label: 'Second resolved entity' })
+
+  await page.route('**/api/projects', (route) => route.fulfill({ json: sonyFixture.projects }))
+  await page.route('**/api/projects/*/entities', (route) =>
+    route.fulfill({ json: { entities: [projectEntity] } }),
+  )
+  await page.route('**/api/entities/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === `/api/entities/${investigation.resolvedEntityId}`) {
+      await firstResponse
+      await route.fulfill({ json: structuredClone(initial) })
+    } else if (url.pathname === '/api/entities/second-resolved-entity') {
+      await route.fulfill({
+        json: {
+          ...structuredClone(initial),
+          profile: {
+            ...initial.profile,
+            id: 'second-resolved-entity',
+            label: 'Second resolved entity',
+          },
+        },
+      })
+    }
+  })
+
+  await page.goto('/analyst')
+  await page.getByTestId('investigation-project-entity').selectOption(investigation.projectEntityId)
+  const resolvedEntitySelect = page.getByTestId('investigation-entity')
+  await resolvedEntitySelect.selectOption(investigation.resolvedEntityId)
+  await expect(page.getByRole('status')).toContainText('Loading entity investigation')
+  await resolvedEntitySelect.selectOption('second-resolved-entity')
+  releaseFirstResponse()
+
+  await expect(page.getByTestId('entity-label')).toHaveText('Second resolved entity')
+})

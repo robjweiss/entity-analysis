@@ -1,68 +1,57 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/native-select'
-import { getEntityInvestigation, getEntityRecords, getEntityRelationships } from '@/api/entities'
 import { listProjectEntities, listProjects } from '@/api/projects'
-import type { EntityInvestigation } from '@shared/api/entities'
 import type { EntityPage, ProjectPage } from '@shared/api/projects'
-
-type RiskLevel = EntityInvestigation['risks'][number]['level']
-
-const riskLevelLabels: Record<RiskLevel, string> = {
-  critical: 'Critical',
-  high: 'High',
-  elevated: 'Elevated',
-  relevant: 'Relevant',
-}
+import { useEntityInvestigation } from '@/composables/useEntityInvestigation'
+import EntityProfileSummary from '@/components/EntityProfileSummary.vue'
+import EntityRelationships from '@/components/EntityRelationships.vue'
+import EntityRecords from '@/components/EntityRecords.vue'
+import { riskLevelLabels } from '@/lib/riskLevelLabels'
 
 const projects = ref<ProjectPage>()
 const projectId = ref('')
 const projectEntities = ref<EntityPage>()
 const projectEntityId = ref('')
 const matchId = ref('')
-const investigation = ref<EntityInvestigation>()
 const projectLoading = ref(false)
 const entityLoading = ref(false)
-const loading = ref(false)
-const relationshipsLoading = ref(false)
-const relationshipsError = ref('')
-const recordsLoading = ref(false)
-const recordsError = ref('')
-const error = ref('')
+const projectError = ref('')
+const {
+  investigation,
+  loading,
+  error,
+  relationshipsLoading,
+  relationshipsError,
+  recordsLoading,
+  recordsError,
+  loadMoreRelationships,
+  loadMoreRecords,
+} = useEntityInvestigation(matchId)
 const selectedProjectEntity = computed(() =>
   projectEntities.value?.entities.find((entity) => entity.id === projectEntityId.value),
 )
 const matches = computed(() => selectedProjectEntity.value?.matches ?? [])
-const profileFacts = computed(() => {
-  const profile = investigation.value?.profile
-  if (!profile) return []
-  return [
-    { label: 'Status', value: profile.latestStatus },
-    { label: 'Registration', value: profile.registrationDate },
-    { label: 'Company type', value: profile.companyType },
-  ].filter((fact): fact is { label: string; value: string } => Boolean(fact.value))
-})
-
 watch(
   projectId,
   async (id, _old, onCleanup) => {
     projectEntities.value = undefined
     projectEntityId.value = ''
     matchId.value = ''
-    investigation.value = undefined
-    error.value = ''
+    projectError.value = ''
+    entityLoading.value = false
     if (!id) return
     const controller = new AbortController()
     onCleanup(() => controller.abort())
     entityLoading.value = true
     try {
-      projectEntities.value = await listProjectEntities(id, {}, { signal: controller.signal })
+      const page = await listProjectEntities(id, {}, { signal: controller.signal })
+      if (!controller.signal.aborted) projectEntities.value = page
     } catch (requestError) {
-      if (!controller.signal.aborted) error.value = (requestError as Error).message
+      if (!controller.signal.aborted) projectError.value = (requestError as Error).message
     } finally {
       if (!controller.signal.aborted) entityLoading.value = false
     }
@@ -72,73 +61,8 @@ watch(
 
 watch(projectEntityId, () => {
   matchId.value = ''
-  investigation.value = undefined
-  error.value = ''
+  projectError.value = ''
 })
-
-watch(
-  matchId,
-  async (id, _old, onCleanup) => {
-    investigation.value = undefined
-    error.value = ''
-    relationshipsError.value = ''
-    recordsError.value = ''
-    if (!id) return
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    loading.value = true
-    try {
-      investigation.value = await getEntityInvestigation(id, { signal: controller.signal })
-    } catch (requestError) {
-      if (!controller.signal.aborted) error.value = (requestError as Error).message
-    } finally {
-      if (!controller.signal.aborted) loading.value = false
-    }
-  },
-  { immediate: true },
-)
-
-async function loadMoreRelationships() {
-  const current = investigation.value
-  const cursor = current?.nextRelationship
-  if (!current || !cursor || relationshipsLoading.value) return
-
-  relationshipsLoading.value = true
-  relationshipsError.value = ''
-  try {
-    const page = await getEntityRelationships(current.profile.id, cursor, {
-      signal: new AbortController().signal,
-    })
-    current.relationships.push(...page.relationships)
-    current.relationshipCount = page.relationshipCount
-    current.nextRelationship = page.nextRelationship
-  } catch (requestError) {
-    relationshipsError.value = (requestError as Error).message
-  } finally {
-    relationshipsLoading.value = false
-  }
-}
-
-async function loadMoreRecords() {
-  const current = investigation.value
-  const cursor = current?.nextRecord
-  if (!current || !cursor || recordsLoading.value) return
-
-  recordsLoading.value = true
-  recordsError.value = ''
-  try {
-    const page = await getEntityRecords(current.profile.id, cursor, {
-      signal: new AbortController().signal,
-    })
-    current.records.push(...page.records)
-    current.recordCount = page.recordCount
-    current.nextRecord = page.nextRecord
-  } catch (requestError) {
-    recordsError.value = (requestError as Error).message
-  } finally {
-    recordsLoading.value = false
-  }
-}
 
 watch(
   projects,
@@ -150,14 +74,16 @@ watch(
 
 async function loadProjects() {
   const controller = new AbortController()
+  onUnmounted(() => controller.abort())
   projectLoading.value = true
-  error.value = ''
+  projectError.value = ''
   try {
-    projects.value = await listProjects({}, { signal: controller.signal })
+    const page = await listProjects({}, { signal: controller.signal })
+    if (!controller.signal.aborted) projects.value = page
   } catch (requestError) {
-    error.value = (requestError as Error).message
+    if (!controller.signal.aborted) projectError.value = (requestError as Error).message
   } finally {
-    projectLoading.value = false
+    if (!controller.signal.aborted) projectLoading.value = false
   }
 }
 
@@ -234,8 +160,8 @@ void loadProjects()
     <p v-if="loading" role="status" class="py-12 text-center text-sm text-muted-foreground">
       Loading entity investigation…
     </p>
-    <Alert v-else-if="error" variant="destructive">
-      <AlertDescription class="text-destructive">{{ error }}</AlertDescription>
+    <Alert v-else-if="error || projectError" variant="destructive">
+      <AlertDescription class="text-destructive">{{ error || projectError }}</AlertDescription>
     </Alert>
     <p
       v-else-if="!investigation"
@@ -245,31 +171,7 @@ void loadProjects()
     </p>
 
     <template v-else>
-      <Card class="gap-0 py-5">
-        <header class="grid gap-4 px-5 sm:grid-cols-[1fr_auto]">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <h2 data-testid="entity-label" class="text-xl font-semibold">
-                {{ investigation.profile.label }}
-              </h2>
-              <Badge variant="muted">{{ investigation.profile.type }}</Badge>
-              <Badge v-if="investigation.profile.sanctioned" variant="critical">Sanctioned</Badge>
-              <Badge v-if="investigation.profile.pep" variant="elevated">PEP</Badge>
-              <Badge v-if="investigation.profile.closed" variant="muted">Closed</Badge>
-            </div>
-            <p class="mt-2 text-sm text-muted-foreground">
-              {{ investigation.profile.countries.join(', ') || 'No countries recorded' }}
-            </p>
-            <dl v-if="profileFacts.length" class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-              <div v-for="fact in profileFacts" :key="fact.label">
-                <dt class="inline text-muted-foreground">{{ fact.label }}:</dt>
-                <dd class="inline">{{ fact.value }}</dd>
-              </div>
-            </dl>
-          </div>
-          <p class="font-mono text-xs text-muted-foreground">{{ investigation.profile.id }}</p>
-        </header>
-      </Card>
+      <EntityProfileSummary :profile="investigation.profile" />
 
       <div class="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(20rem,1fr)]">
         <div class="grid gap-6">
@@ -306,63 +208,14 @@ void loadProjects()
             </Card>
           </section>
 
-          <section aria-labelledby="relationships-heading">
-            <Card class="gap-0 py-0">
-              <CardHeader class="border-b px-5 py-4">
-                <h2 id="relationships-heading" class="font-medium">Related entities</h2>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  {{ investigation.relationshipCount }} direct relationships recorded.
-                </p>
-              </CardHeader>
-              <CardContent class="p-0">
-                <p
-                  v-if="!investigation.relationships.length"
-                  class="p-5 text-sm text-muted-foreground"
-                >
-                  No direct relationships returned.
-                </p>
-                <ul v-else class="divide-y">
-                  <li
-                    v-for="relationship in investigation.relationships"
-                    :key="relationship.id"
-                    class="flex items-start justify-between gap-4 p-5"
-                  >
-                    <div>
-                      <p class="font-medium">{{ relationship.label }}</p>
-                      <p class="mt-1 text-sm text-muted-foreground">
-                        {{ relationship.types.join(', ')
-                        }}<template v-if="relationship.countries.length">
-                          · {{ relationship.countries.join(', ') }}</template
-                        >
-                      </p>
-                    </div>
-                    <div class="flex gap-1">
-                      <Badge v-if="relationship.sanctioned" variant="critical">Sanctioned</Badge
-                      ><Badge v-if="relationship.pep" variant="elevated">PEP</Badge>
-                    </div>
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter
-                v-if="investigation.nextRelationship || relationshipsError"
-                class="grid justify-items-center gap-2 bg-transparent px-5 py-3"
-              >
-                <p v-if="relationshipsError" role="alert" class="text-sm text-destructive">
-                  {{ relationshipsError }}
-                </p>
-                <Button
-                  v-if="investigation.nextRelationship"
-                  variant="outline"
-                  size="sm"
-                  data-testid="show-more-relationships"
-                  :disabled="relationshipsLoading"
-                  @click="loadMoreRelationships"
-                >
-                  {{ relationshipsLoading ? 'Loading relationships…' : 'Show more relationships' }}
-                </Button>
-              </CardFooter>
-            </Card>
-          </section>
+          <EntityRelationships
+            :relationships="investigation.relationships"
+            :count="investigation.relationshipCount"
+            :has-more="Boolean(investigation.nextRelationship)"
+            :loading="relationshipsLoading"
+            :error="relationshipsError"
+            @load-more="loadMoreRelationships"
+          />
         </div>
 
         <aside class="grid content-start gap-6">
@@ -410,53 +263,14 @@ void loadProjects()
               </CardContent>
             </Card>
           </section>
-
-          <section>
-            <Card class="gap-0 py-0">
-              <CardHeader class="border-b px-5 py-4">
-                <h2 class="font-medium">Supporting records</h2>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  {{ investigation.recordCount }} records reference this entity.
-                </p>
-              </CardHeader>
-              <CardContent class="p-0">
-                <p v-if="!investigation.records.length" class="p-5 text-sm text-muted-foreground">
-                  No records returned.
-                </p>
-                <ul v-else class="divide-y">
-                  <li v-for="record in investigation.records" :key="record.id" class="p-4 text-sm">
-                    <p class="font-medium">{{ record.label }}</p>
-                    <p class="mt-1 text-muted-foreground">
-                      {{ record.type === 'about' ? 'About this entity' : 'Mentions this entity'
-                      }}<template v-if="record.publicationDate">
-                        · Published {{ record.publicationDate }}</template
-                      ><template v-if="record.acquisitionDate">
-                        · Collected {{ record.acquisitionDate }}</template
-                      >
-                    </p>
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter
-                v-if="investigation.nextRecord || recordsError"
-                class="grid justify-items-center gap-2 bg-transparent px-5 py-3"
-              >
-                <p v-if="recordsError" role="alert" class="text-sm text-destructive">
-                  {{ recordsError }}
-                </p>
-                <Button
-                  v-if="investigation.nextRecord"
-                  variant="outline"
-                  size="sm"
-                  data-testid="show-more-records"
-                  :disabled="recordsLoading"
-                  @click="loadMoreRecords"
-                >
-                  {{ recordsLoading ? 'Loading records…' : 'Show more records' }}
-                </Button>
-              </CardFooter>
-            </Card>
-          </section>
+          <EntityRecords
+            :records="investigation.records"
+            :count="investigation.recordCount"
+            :has-more="Boolean(investigation.nextRecord)"
+            :loading="recordsLoading"
+            :error="recordsError"
+            @load-more="loadMoreRecords"
+          />
 
           <section>
             <Card class="gap-0 py-5">

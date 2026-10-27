@@ -177,6 +177,41 @@ describe('ExecutiveView', () => {
     )
   })
 
+  it.each([
+    { count: 10, total: 10, expected: '100%' },
+    { count: 0, total: 10, expected: '0%' },
+    { count: 1, total: 10000, expected: '<0.1%' },
+    { count: 20, total: 10, expected: '100%' },
+  ])('formats exact theme proportions ($count/$total)', async ({ count, total, expected }) => {
+    mockApi({
+      exposure: {
+        ...exposure,
+        total: eq(total),
+        categories: { ...exposure.categories, sanctions: eq(count) },
+      },
+    })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="theme-sanctions"] [data-slot="badge"]').text()).toBe(expected)
+  })
+
+  it('keeps risk changes visible when exposure fails', async () => {
+    mockApi({ error: 'exposure' })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="Recent risk changes"]').text()).toContain('Example supplier')
+  })
+
+  it('keeps exposure visible when risk changes fail', async () => {
+    mockApi({ error: 'changes' })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="project-total"]').text()).toBe('Project entities: 10')
+  })
+
   it('shows the entity name when available for a change', async () => {
     mockApi()
     const wrapper = mount(ExecutiveView)
@@ -314,6 +349,196 @@ describe('ExecutiveView', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe('Unable to load more changes.')
   })
 
+  it('retains existing changes and retries a failed next page', async () => {
+    const fetchMock = mockApi({
+      changes: { ...changes, next: 'upstream-next' },
+      nextError: true,
+      nextChanges: { ...changes, changes: [{ ...changes.changes[0], factor: 'retried' }] },
+    })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    fetchMock.mockImplementation((input) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            input.includes('?next=')
+              ? { ...changes, changes: [{ ...changes.changes[0], factor: 'retried' }] }
+              : { projects, exposure, changes },
+          ),
+      }),
+    )
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="Recent risk changes"]').text()).toContain('retried')
+  })
+
+  it('keeps the original snapshot across multiple page transitions', async () => {
+    const fetchMock = mockApi({
+      changes: { ...changes, next: 'page-one' },
+      nextChanges: {
+        ...changes,
+        next: 'page-two',
+        changes: [{ ...changes.changes[0], factor: 'page_one' }],
+      },
+    })
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(
+      new URL(fetchMock.mock.calls.at(-1)?.[0] ?? '', 'http://localhost').searchParams.get('asOf'),
+    ).toBe(changes.to)
+  })
+
+  it.each(['success', 'failure'] as const)(
+    'ignores a stale initial %s after switching projects',
+    async (outcome) => {
+      let resolveOld!: (response: { ok: boolean; json: () => Promise<object> }) => void
+      const fetchMock = vi.fn<
+        (input: string, init?: RequestInit) => Promise<{ ok: boolean; json: () => Promise<object> }>
+      >((input) => {
+        if (input.includes('/risk-changes') && input.includes('project-1'))
+          return new Promise((resolve) => {
+            resolveOld = resolve
+          })
+        if (input.includes('/risk-changes'))
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(changes) })
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(input.includes('/exposure') ? exposure : projects),
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(ExecutiveView)
+      await flushPromises()
+      await wrapper.get('[data-testid="exposure-project"]').setValue('project-2')
+      await flushPromises()
+      resolveOld(
+        outcome === 'success'
+          ? {
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  ...changes,
+                  changes: [{ ...changes.changes[0], entityName: 'Stale result' }],
+                }),
+            }
+          : { ok: false, json: () => Promise.resolve({ error: { message: 'Stale failure' } }) },
+      )
+      await flushPromises()
+
+      expect(wrapper.get('[aria-label="Recent risk changes"]').text()).not.toContain('Stale')
+    },
+  )
+
+  it.each(['switch', 'unmount'] as const)('aborts a pending initial feed on %s', async (action) => {
+    let initialSignal: AbortSignal | undefined
+    const fetchMock = vi.fn<
+      (
+        input: string,
+        init?: { signal?: AbortSignal },
+      ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+    >((input, init) => {
+      if (input.includes('/risk-changes')) {
+        initialSignal ??= init?.signal
+        return new Promise(() => undefined)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(input.includes('/exposure') ? exposure : projects),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    if (action === 'switch')
+      await wrapper.get('[data-testid="exposure-project"]').setValue('project-2')
+    else wrapper.unmount()
+    await flushPromises()
+
+    expect(initialSignal?.aborted).toBe(true)
+  })
+
+  it.each([
+    { action: 'switch', outcome: 'success' },
+    { action: 'switch', outcome: 'failure' },
+    { action: 'unmount', outcome: 'success' },
+    { action: 'unmount', outcome: 'failure' },
+  ] as const)(
+    'aborts a pending page on $action and ignores stale $outcome',
+    async ({ action, outcome }) => {
+      let pageSignal: AbortSignal | undefined
+      let resolvePage!: (response: { ok: boolean; json: () => Promise<object> }) => void
+      const fetchMock = vi.fn<
+        (
+          input: string,
+          init?: { signal?: AbortSignal },
+        ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+      >((input, init) => {
+        if (input.includes('?next=')) {
+          pageSignal = init?.signal
+          return new Promise((resolve) => {
+            resolvePage = resolve
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve(
+              input.includes('/exposure')
+                ? exposure
+                : input.includes('/risk-changes')
+                  ? { ...changes, next: 'cursor' }
+                  : projects,
+            ),
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(ExecutiveView)
+      await flushPromises()
+      await wrapper.find('button').trigger('click')
+      if (action === 'switch')
+        await wrapper.get('[data-testid="exposure-project"]').setValue('project-2')
+      else wrapper.unmount()
+      await flushPromises()
+      resolvePage(
+        outcome === 'success'
+          ? {
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  ...changes,
+                  changes: [{ ...changes.changes[0], entityName: 'Stale page' }],
+                }),
+            }
+          : {
+              ok: false,
+              json: () => Promise.resolve({ error: { message: 'Stale page failure' } }),
+            },
+      )
+      await flushPromises()
+
+      expect(pageSignal?.aborted).toBe(true)
+      const staleState =
+        action === 'switch'
+          ? {
+              changes: wrapper.get('[aria-label="Recent risk changes"]').text().includes('Stale'),
+              error: wrapper
+                .findAll('[role="alert"]')
+                .some((alert) => alert.text().includes('Stale')),
+            }
+          : { changes: false, error: false }
+      expect(staleState).toEqual({ changes: false, error: false })
+    },
+  )
+
   it('resets revealed changes when a different project is selected', async () => {
     mockApi({
       changes: {
@@ -359,10 +584,12 @@ describe('ExecutiveView', () => {
     await wrapper.get('[data-testid="exposure-project"]').setValue('project-2')
     await flushPromises()
 
-    expect(fetchMock.mock.calls.slice(-2).map(([url]) => url)).toEqual([
-      '/api/projects/project-2/exposure',
-      '/api/projects/project-2/risk-changes',
-    ])
+    expect(
+      fetchMock.mock.calls
+        .slice(-2)
+        .map(([url]) => url)
+        .sort(),
+    ).toEqual(['/api/projects/project-2/exposure', '/api/projects/project-2/risk-changes'].sort())
   })
 
   it('supports paginating the project selector', async () => {
@@ -376,6 +603,33 @@ describe('ExecutiveView', () => {
     await flushPromises()
 
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/projects?next=cursor')).toBe(true)
+  })
+
+  it('selects the first project returned on a newly loaded page', async () => {
+    const fetchMock = mockApi({
+      projects: { ...projects, next: 'cursor' },
+    })
+    const originalFetch = fetchMock.getMockImplementation()!
+    const wrapper = mount(ExecutiveView)
+    await flushPromises()
+    fetchMock.mockImplementation((input) =>
+      input.includes('?next=')
+        ? Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ projects: [{ id: 'project-3', label: 'Next project' }] }),
+          })
+        : originalFetch(input),
+    )
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Next projects')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="exposure-project"]').element).toHaveProperty(
+      'value',
+      'project-3',
+    )
   })
 
   it.each(['projects', 'exposure', 'changes'])(
