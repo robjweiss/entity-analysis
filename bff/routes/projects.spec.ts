@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { SayariError } from '@sayari/sdk'
+import { SayariError, SayariTimeoutError } from '@sayari/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const nativeFetch = globalThis.fetch
@@ -194,7 +194,13 @@ describe('project routes', () => {
 
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 400,
-      body: { error: { code: 'INVALID_PARAMETER', message: 'Provide both "next" and "asOf" to load more changes.', parameter: 'next' } },
+      body: {
+        error: {
+          code: 'INVALID_PARAMETER',
+          message: 'Provide both "next" and "asOf" to load more changes.',
+          parameter: 'next',
+        },
+      },
     })
   })
 
@@ -247,7 +253,7 @@ describe('project routes', () => {
       status: 502,
       body: {
         error: {
-          code: 'UPSTREAM_UNAVAILABLE',
+          code: 'UPSTREAM_INVALID_RESPONSE',
           message: 'Unable to load project entities. Please try again shortly.',
         },
       },
@@ -389,14 +395,17 @@ describe('project routes', () => {
     })
   })
 
-  it('does not expose upstream project errors', async () => {
+  it('classifies unknown SDK errors as internal failures without exposing details', async () => {
     sayari.getProjects.mockRejectedValue(new Error('upstream credentials'))
     const response = await requestApp('/api/projects')
 
-    expect(await response.json()).toEqual({
-      error: {
-        code: 'UPSTREAM_UNAVAILABLE',
-        message: 'Unable to load projects. Please try again shortly.',
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 500,
+      body: {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Unable to load projects. Please try again shortly.',
+        },
       },
     })
   })
@@ -463,5 +472,144 @@ describe('project routes', () => {
         },
       },
     })
+  })
+
+  it.each([
+    {
+      name: 'local timeout-shaped exception',
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      setup: () =>
+        sayari.getProjects.mockRejectedValue(new DOMException('local timeout', 'TimeoutError')),
+      path: '/api/projects',
+    },
+    {
+      name: 'malformed upstream payload',
+      status: 502,
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      path: '/api/projects/abc/exposure',
+      setup: () =>
+        vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).startsWith('https://api.sayari.com/')
+            ? Promise.resolve(
+                new Response(JSON.stringify({ size: { count: -1, qualifier: 'eq' } })),
+              )
+            : nativeFetch(input, init),
+        ),
+    },
+    {
+      name: 'null upstream JSON',
+      status: 502,
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      path: '/api/projects/abc/entities/entity-1',
+      setup: () =>
+        vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).startsWith('https://api.sayari.com/')
+            ? Promise.resolve(new Response('null'))
+            : nativeFetch(input, init),
+        ),
+    },
+    {
+      name: 'malformed upstream JSON',
+      status: 502,
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      path: '/api/projects/abc/exposure',
+      setup: () =>
+        vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).startsWith('https://api.sayari.com/')
+            ? Promise.resolve(new Response('{'))
+            : nativeFetch(input, init),
+        ),
+    },
+    {
+      name: 'transport failure',
+      status: 503,
+      code: 'UPSTREAM_UNAVAILABLE',
+      setup: () =>
+        vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).startsWith('https://api.sayari.com/')
+            ? Promise.reject(new TypeError('socket failed'))
+            : nativeFetch(input, init),
+        ),
+      path: '/api/projects/abc/exposure',
+    },
+    {
+      name: 'actual timeout',
+      status: 504,
+      code: 'UPSTREAM_TIMEOUT',
+      setup: () =>
+        vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).startsWith('https://api.sayari.com/')
+            ? Promise.reject(new DOMException('timed out', 'TimeoutError'))
+            : nativeFetch(input, init),
+        ),
+      path: '/api/projects/abc/exposure',
+    },
+    ...[401, 500].map((upstreamStatus) => ({
+      name: `upstream HTTP ${upstreamStatus}`,
+      status: 502,
+      code: 'UPSTREAM_ERROR',
+      setup: () =>
+        sayari.getProjects.mockRejectedValue(new SayariError({ statusCode: upstreamStatus })),
+      path: '/api/projects',
+    })),
+    {
+      name: 'upstream validation rejection',
+      status: 400,
+      code: 'UPSTREAM_REJECTED_REQUEST',
+      setup: () => sayari.getProjects.mockRejectedValue(new SayariError({ statusCode: 422 })),
+      path: '/api/projects',
+    },
+    {
+      name: 'upstream service unavailable',
+      status: 503,
+      code: 'UPSTREAM_UNAVAILABLE',
+      setup: () => sayari.getProjects.mockRejectedValue(new SayariError({ statusCode: 503 })),
+      path: '/api/projects',
+    },
+    {
+      name: 'upstream request timeout',
+      status: 504,
+      code: 'UPSTREAM_TIMEOUT',
+      setup: () => sayari.getProjects.mockRejectedValue(new SayariError({ statusCode: 408 })),
+      path: '/api/projects',
+    },
+    {
+      name: 'SDK timeout',
+      status: 504,
+      code: 'UPSTREAM_TIMEOUT',
+      setup: () => sayari.getProjects.mockRejectedValue(new SayariTimeoutError('timeout')),
+      path: '/api/projects',
+    },
+    {
+      name: 'SDK connection error',
+      status: 503,
+      code: 'UPSTREAM_UNAVAILABLE',
+      setup: () => sayari.getProjects.mockRejectedValue(new SayariError({ statusCode: 520 })),
+      path: '/api/projects',
+    },
+    {
+      name: 'SDK unknown transport failure',
+      status: 503,
+      code: 'UPSTREAM_UNAVAILABLE',
+      setup: () =>
+        sayari.getProjects.mockRejectedValue(new SayariError({ message: 'private fetch detail' })),
+      path: '/api/projects',
+    },
+  ])('maps $name to the expected response', async ({ setup, path, status, code }) => {
+    setup()
+    const response = await requestApp(path)
+
+    expect({ status: response.status, code: (await response.json()).error.code }).toEqual({
+      status,
+      code,
+    })
+  })
+
+  it('does not return private exception details in error responses', async () => {
+    sayari.getProjects.mockRejectedValue(new Error('private config detail'))
+    const response = await requestApp('/api/projects')
+
+    expect(JSON.stringify(await response.json())).not.toContain('private config detail')
   })
 })

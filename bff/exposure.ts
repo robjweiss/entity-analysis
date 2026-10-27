@@ -1,6 +1,7 @@
-import { SayariEnvironment, SayariError } from '@sayari/sdk'
+import { SayariEnvironment } from '@sayari/sdk'
 import type { ProjectExposure, ProjectRiskChanges } from '#shared/api/projects'
 import { RequestValidationError } from './httpErrors.ts'
+import { fetchUpstreamJson, UpstreamPayloadError } from './sayariRequest.ts'
 import { getRiskFactors } from './projects.ts'
 import {
   projectExposureCountResponseSchema,
@@ -8,12 +9,10 @@ import {
 } from './projectSchemas.ts'
 
 async function requestSayari(url: URL, token: string): Promise<unknown> {
-  const response = await fetch(url, {
+  return fetchUpstreamJson<unknown>(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
   })
-  if (!response.ok) throw new SayariError({ statusCode: response.status })
-  return response.json()
 }
 
 export async function getProjectExposure(
@@ -35,7 +34,7 @@ export async function getProjectExposure(
     if (category) url.searchParams.set('filter[risk_category]', category)
     const body = await requestSayari(url, token)
     const result = projectExposureCountResponseSchema.safeParse(body)
-    if (!result.success) throw new Error('Unexpected Sayari project entity count response.')
+    if (!result.success) throw new UpstreamPayloadError('Unexpected Sayari project entity count response.')
     return result.data.size
   }
 
@@ -74,14 +73,14 @@ export async function getProjectRiskChanges(
 
   const response = await requestSayari(url, token)
   const result = projectWideRiskChangesSchema.safeParse(response)
-  if (!result.success) throw new Error('Unexpected Sayari project risk changes response.')
+  if (!result.success) throw new UpstreamPayloadError('Unexpected Sayari project risk changes response.')
   const body = result.data
   const groups = body.data.risk_changes
   if (groups === undefined && Object.keys(body.data).length === 0) {
     const next = typeof body.next === 'string' && body.next ? body.next : undefined
     return { from, to, changes: [], hasMore: Boolean(next), next }
   }
-  if (!groups) throw new Error('Unexpected Sayari project risk changes response.')
+  if (!groups) throw new UpstreamPayloadError('Unexpected Sayari project risk changes response.')
 
   const changes: ProjectRiskChanges['changes'] = []
   for (const group of groups) {

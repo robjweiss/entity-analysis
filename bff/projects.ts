@@ -7,6 +7,7 @@ import {
   projectEntityRiskSummarySchema,
 } from './projectSchemas.ts'
 import { projectRiskFactorOntologyResponseSchema } from './sayariSchemas.ts'
+import { fetchUpstreamJson, UpstreamPayloadError } from './sayariRequest.ts'
 
 export type EntityFilters = {
   name?: string
@@ -26,15 +27,13 @@ const riskSeverityOrder: Record<Sayari.RiskLevel, number> = {
 }
 export async function getRiskFactors(token: string): Promise<Map<string, RiskFactorMetadata>> {
   const url = new URL('/v1/ontology/risk_factors', SayariEnvironment.Production)
-  const response = await fetch(url, {
+  const body = await fetchUpstreamJson<unknown>(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
   })
-  if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const body: unknown = await response.json()
   const ontologyResult = projectRiskFactorOntologyResponseSchema.safeParse(body)
   if (!ontologyResult.success) {
-    throw new Error('Unexpected Sayari risk-factor ontology response.')
+    throw new UpstreamPayloadError('Unexpected Sayari risk-factor ontology response.')
   }
 
   const riskFactors = new Map<string, RiskFactorMetadata>()
@@ -93,14 +92,12 @@ export async function getProjectEntities(
 
   // The SDK parser rejects live ontology records that omit do_not_render_metadata.
   // Fetch and narrowly parse the wire response until its schema is corrected.
-  const response = await fetch(url, {
+  const body = await fetchUpstreamJson<unknown>(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
   })
-  if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const body: unknown = await response.json()
   const pageResult = projectEntityListSchema.safeParse(body)
-  if (!pageResult.success) throw new Error('Unexpected Sayari entity response.')
+  if (!pageResult.success) throw new UpstreamPayloadError('Unexpected Sayari entity response.')
   const page = pageResult.data
   const riskFactorOntology = await getRiskFactors(token)
 
@@ -148,13 +145,10 @@ export async function getProjectEntityDetail(
   // network paths, and empty risk-change data). Parse only the fields we use.
   const fetchEndpoint = async (endpoint: string, url: URL): Promise<unknown> => {
     try {
-      const response = await fetch(url, {
+      return await fetchUpstreamJson<unknown>(url, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(60_000),
       })
-      if (!response.ok) throw new SayariError({ statusCode: response.status })
-      const body: unknown = await response.json()
-      return body
     } catch (error) {
       console.error(`Sayari project entity ${endpoint} request failed`, {
         errorType: error instanceof Error ? error.constructor.name : typeof error,
@@ -180,14 +174,14 @@ export async function getProjectEntityDetail(
     fetchEndpoint('risk_changes', changesUrl),
   ])
   const summaryResult = projectEntityRiskSummarySchema.safeParse(summaryBody)
-  if (!summaryResult.success) throw new Error('Unexpected Sayari risk summary response.')
+  if (!summaryResult.success) throw new UpstreamPayloadError('Unexpected Sayari risk summary response.')
   const changesResult = projectEntityRiskChangesSchema.safeParse(changesBody)
-  if (!changesResult.success) throw new Error('Unexpected Sayari risk changes response.')
+  if (!changesResult.success) throw new UpstreamPayloadError('Unexpected Sayari risk changes response.')
   const summary = summaryResult.data
   const changes = changesResult.data
 
   const riskFactors = summary.data?.risk_factors
-  if (!Array.isArray(riskFactors)) throw new Error('Unexpected Sayari risk summary response.')
+  if (!Array.isArray(riskFactors)) throw new UpstreamPayloadError('Unexpected Sayari risk summary response.')
 
   return {
     riskFactors: riskFactors.map((factor) => ({

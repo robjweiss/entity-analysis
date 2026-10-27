@@ -1,7 +1,8 @@
 import type { SayariClient } from '@sayari/sdk'
-import { SayariEnvironment, SayariError } from '@sayari/sdk'
+import { SayariEnvironment } from '@sayari/sdk'
 import { getAccessToken } from './sayari.ts'
 import { entityRiskOntologyEntrySchema, riskFactorOntologyResponseSchema } from './sayariSchemas.ts'
+import { fetchUpstreamJson, UpstreamPayloadError } from './sayariRequest.ts'
 import type { EntityInvestigation } from '#shared/api/entities'
 
 export type { EntityInvestigation } from '#shared/api/entities'
@@ -52,14 +53,12 @@ async function getRiskOntology(client: SayariClient) {
   // SDK 0.1.44 rejects some live ontology objects, so parse only the label and
   // description fields used by the investigation view.
   const token = await getAccessToken(client)
-  const response = await fetch(new URL('/v1/ontology/risk_factors', SayariEnvironment.Production), {
+  const body = await fetchUpstreamJson<unknown>(new URL('/v1/ontology/risk_factors', SayariEnvironment.Production), {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
   })
-  if (!response.ok) throw new SayariError({ statusCode: response.status })
-  const body: unknown = await response.json()
   const ontologyResult = riskFactorOntologyResponseSchema.safeParse(body)
-  if (!ontologyResult.success) throw new Error('Unexpected Sayari risk-factor ontology response.')
+  if (!ontologyResult.success) throw new UpstreamPayloadError('Unexpected Sayari risk-factor ontology response.')
 
   return new Map(
     ontologyResult.data.data.flatMap((risk) => {
