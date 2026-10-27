@@ -6,8 +6,8 @@
 !*.config.ts
 !index.html
 !env.d.ts
-!src/
-!src/**
+!web/
+!web/**
 !public/
 !public/**
 !shared/

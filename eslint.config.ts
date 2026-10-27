@@ -29,12 +29,12 @@ export default defineConfigWithVueTs(
 
   {
     ...pluginVitest.configs.recommended,
-    files: ['src/**/__tests__/*'],
+    files: ['web/**/__tests__/*'],
   },
 
   {
     name: 'shadcn-vue/generated-components',
-    files: ['src/components/ui/**/*.vue'],
+    files: ['web/components/ui/**/*.vue'],
     rules: {
       'vue/multi-word-component-names': 'off',
     },

@@ -4,6 +4,13 @@ Entity Analysis is a Vue 3 application for viewing entity risk information.
 It uses the [Sayari Node SDK](https://github.com/sayari-analytics/sayari-node) and API
 as a data source.
 
+## Project structure
+
+- `web/`: Vue application, components, and frontend unit tests.
+- `bff/`: Express backend for frontend and server-side Sayari integration.
+- `shared/`: API contracts shared by the frontend and BFF.
+- `e2e/`: Playwright browser tests.
+
 ## Sayari credentials
 
 The Sayari Node SDK requires a client ID and client secret.
