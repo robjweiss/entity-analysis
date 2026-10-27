@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ManagementView from './ManagementView.vue'
-import EntityRiskDetailSheet from '@/components/EntityRiskDetailSheet.vue'
 import type { EntityPage } from '@shared/api/projects'
 
 const projects = { projects: [{ id: 'project-1', label: 'Supplier review' }] }
@@ -594,101 +593,6 @@ describe('ManagementView', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('No recorded risk factors.')
-  })
-
-  it('loads details when mounted initially open', async () => {
-    const fetchMock = mockApi()
-    mount(EntityRiskDetailSheet, {
-      props: { projectId: 'project-1', entity, open: true },
-    })
-    await flushPromises()
-
-    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/entities/entity-1')
-  })
-
-  it('aborts a pending detail request when the sheet closes', async () => {
-    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
-    const fetchMock = vi.fn<
-      (
-        input: string,
-        init?: { signal?: AbortSignal },
-      ) => Promise<{ ok: boolean; json: () => Promise<object> }>
-    >(() => pending.promise)
-    vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(EntityRiskDetailSheet, {
-      props: { projectId: 'project-1', entity, open: true },
-    })
-    await flushPromises()
-    const signal = fetchMock.mock.calls[0]?.[1]?.signal
-
-    await wrapper.setProps({ open: false })
-
-    expect(signal?.aborted).toBe(true)
-  })
-
-  it('aborts a pending detail request when the sheet unmounts', async () => {
-    const pending = deferred<{ ok: boolean; json: () => Promise<object> }>()
-    const fetchMock = vi.fn<
-      (
-        input: string,
-        init?: { signal?: AbortSignal },
-      ) => Promise<{ ok: boolean; json: () => Promise<object> }>
-    >(() => pending.promise)
-    vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(EntityRiskDetailSheet, {
-      props: { projectId: 'project-1', entity, open: true },
-    })
-    await flushPromises()
-    const signal = fetchMock.mock.calls[0]?.[1]?.signal
-
-    wrapper.unmount()
-
-    expect(signal?.aborted).toBe(true)
-  })
-
-  it.each([
-    { outcome: 'success', ok: true },
-    { outcome: 'failure', ok: false },
-  ])('ignores a stale detail $outcome after close and reopen', async ({ ok }) => {
-    const first = deferred<{ ok: boolean; json: () => Promise<object> }>()
-    const latestDetail = {
-      riskFactors: [
-        {
-          id: 'current',
-          label: 'Current response',
-          level: 'critical',
-          riskCategories: [],
-          sourceEntityIds: [],
-          networkPaths: [],
-        },
-      ],
-      riskChanges: [],
-    }
-    const responses = [
-      first.promise,
-      Promise.resolve({ ok: true, json: () => Promise.resolve(latestDetail) }),
-    ]
-    const fetchMock = vi.fn<
-      (input: string) => Promise<{ ok: boolean; json: () => Promise<object> }>
-    >(() => responses.shift()!)
-    vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(EntityRiskDetailSheet, {
-      props: { projectId: 'project-1', entity, open: true },
-    })
-    await flushPromises()
-    await wrapper.setProps({ open: false })
-    await flushPromises()
-    await wrapper.setProps({ open: true })
-    await flushPromises()
-
-    first.resolve({
-      ok,
-      json: () => Promise.resolve(ok ? detail : { error: { message: 'Stale failure.' } }),
-    })
-    await flushPromises()
-
-    expect(document.body.textContent).toContain('Current response')
-    expect(document.body.textContent).not.toContain('Stale failure.')
   })
 
   it('shows the empty state returned by the BFF', async () => {

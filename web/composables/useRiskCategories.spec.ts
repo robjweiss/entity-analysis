@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { useRiskCategories } from './useRiskCategories'
 
+enableAutoUnmount(afterEach)
 afterEach(() => vi.unstubAllGlobals())
 
 function deferred<T>() {
@@ -107,5 +108,63 @@ describe('useRiskCategories', () => {
     wrapper.unmount()
 
     expect(signal?.aborted).toBe(true)
+  })
+
+  it.each(['success', 'failure'] as const)(
+    'ignores an overlapping stale request %s after retry takes ownership',
+    async (outcome) => {
+      const stale = deferred<{ ok: boolean; json: () => Promise<object> }>()
+      let calls = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => {
+          calls += 1
+          return calls === 1
+            ? stale.promise
+            : Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ categories: [{ id: 'current', label: 'Current' }] }),
+              })
+        }),
+      )
+      const { wrapper, state } = mountComposable()
+      await flushPromises()
+      await state.loadRiskCategories()
+      if (outcome === 'success') {
+        stale.resolve({
+          ok: true,
+          json: () => Promise.resolve({ categories: [{ id: 'stale', label: 'Stale' }] }),
+        })
+      } else {
+        stale.reject(new Error('stale error'))
+      }
+      await flushPromises()
+
+      expect([state.riskCategories.value, state.riskCategoriesError.value]).toEqual([
+        [{ id: 'current', label: 'Current' }],
+        '',
+      ])
+      wrapper.unmount()
+    },
+  )
+
+  it('keeps loading owned by the retry after the earlier request settles', async () => {
+    const first = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    const second = deferred<{ ok: boolean; json: () => Promise<object> }>()
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => (++calls === 1 ? first.promise : second.promise)),
+    )
+    const { wrapper, state } = mountComposable()
+    await flushPromises()
+    const retry = state.loadRiskCategories()
+    first.resolve({ ok: true, json: () => Promise.resolve({ categories: [] }) })
+    await flushPromises()
+
+    expect(state.riskCategoriesLoading.value).toBe(true)
+    second.resolve({ ok: true, json: () => Promise.resolve({ categories: [] }) })
+    await retry
+    wrapper.unmount()
   })
 })
