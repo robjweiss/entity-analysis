@@ -10,6 +10,13 @@ export default mergeConfig(
       include: ['web/**/*.spec.ts', 'bff/**/*.spec.ts'],
       exclude: [...configDefaults.exclude, 'e2e/**'],
       root: fileURLToPath(new URL('./', import.meta.url)),
+      coverage: {
+        provider: 'v8',
+        include: ['web/**/*.ts', 'web/**/*.vue'],
+        exclude: ['web/**/*.spec.ts', 'web/components/ui/**'],
+        reporter: ['text', 'html'],
+        reportsDirectory: './coverage/web',
+      },
     },
   }),
 )

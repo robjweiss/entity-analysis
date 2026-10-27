@@ -97,6 +97,20 @@ pnpm build
 pnpm test:unit
 ```
 
+#### Measure web application coverage
+
+```sh
+pnpm test:coverage:web
+```
+
+The report includes all TypeScript and Vue source under `web/`, including files
+not imported by the current tests. Generated shadcn-vue wrappers in
+`web/components/ui/` are excluded; coverage therefore describes application
+code, not the UI library wrappers. Application bootstrap, router, and stores
+remain in scope. This command runs both web and BFF unit tests, but measures
+only web coverage. The HTML report is written under the ignored `coverage/web/`
+directory, and a text summary is printed in the terminal.
+
 #### Run End-to-End Tests with [Playwright](https://playwright.dev)
 
 ```sh
